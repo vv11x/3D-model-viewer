@@ -385,7 +385,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (node.children && node.children.length > 0) {
         const toggle = document.createElement('span');
-        toggle.className = 'tree-toggle expanded';
+        toggle.className = 'tree-toggle';
         toggle.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z" /></svg>`;
         row.appendChild(toggle);
 
@@ -407,7 +407,7 @@ document.addEventListener('DOMContentLoaded', () => {
         treeNode.appendChild(row);
 
         const childrenContainer = document.createElement('div');
-        childrenContainer.className = 'tree-children';
+        childrenContainer.className = 'tree-children collapsed';
         renderTree(node.children, childrenContainer);
         treeNode.appendChild(childrenContainer);
 
