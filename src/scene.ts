@@ -589,4 +589,53 @@ export class SceneController {
     window.removeEventListener("resize", this._onResize);
     this.engine.dispose();
   }
+
+  public getModelHierarchy(): TreeNode[] | null {
+    if (!this._currentModelRoot) return null;
+    return this._currentModelRoot.getChildren().map((node: any) => this._buildTreeNode(node));
+  }
+
+  private _buildTreeNode(node: any): TreeNode {
+    const children: any[] = node.getChildren ? node.getChildren() : [];
+    const isMesh = node.getClassName && node.getClassName().includes('Mesh');
+
+    if (isMesh && children.length === 0) {
+      return {
+        name: node.name,
+        type: 'mesh',
+        vertices: node.getTotalVertices(),
+        meshName: node.name
+      };
+    }
+
+    const childNodes: TreeNode[] = [];
+    children.forEach((child: any) => {
+      childNodes.push(this._buildTreeNode(child));
+    });
+
+    if (childNodes.length === 0 && isMesh) {
+      return {
+        name: node.name,
+        type: 'mesh',
+        vertices: node.getTotalVertices(),
+        meshName: node.name
+      };
+    }
+
+    return {
+      name: node.name,
+      type: isMesh ? 'mesh' : 'transform',
+      vertices: isMesh ? node.getTotalVertices() : undefined,
+      children: childNodes.length > 0 ? childNodes : undefined,
+      meshName: isMesh ? node.name : undefined
+    };
+  }
+}
+
+export interface TreeNode {
+  name: string;
+  type: 'transform' | 'mesh';
+  vertices?: number;
+  children?: TreeNode[];
+  meshName?: string;
 }

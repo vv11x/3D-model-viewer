@@ -140,6 +140,181 @@ body, html {
   font-weight: 300;
 }
 
+/* Page System */
+.page {
+  display: none;
+  flex-direction: column;
+  gap: 0;
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+  padding-right: 4px;
+}
+
+.page::-webkit-scrollbar {
+  width: 4px;
+}
+
+.page::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.page.active {
+  display: flex;
+  animation: pageIn 0.25s ease;
+}
+
+@keyframes pageIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Detail Page Header */
+.detail-header {
+  margin-bottom: 16px;
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-family: var(--font-primary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-secondary);
+  transition: var(--transition-fast);
+}
+
+.btn-ghost:hover {
+  color: var(--accent-cyan);
+  background: rgba(0, 242, 254, 0.06);
+}
+
+/* Model Info Actions Row */
+.model-info-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+/* Model Tree View */
+.model-tree {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+.model-tree::-webkit-scrollbar {
+  width: 4px;
+}
+
+.model-tree::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+
+.tree-node {
+  user-select: none;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.tree-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.tree-row.active {
+  background: rgba(0, 242, 254, 0.08);
+  border: 1px solid rgba(0, 242, 254, 0.25);
+  color: var(--accent-cyan);
+}
+
+.tree-toggle {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+
+.tree-toggle.expanded {
+  transform: rotate(90deg);
+}
+
+.tree-toggle-placeholder {
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.tree-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.tree-icon.folder {
+  color: var(--accent-blue);
+}
+
+.tree-icon.mesh {
+  color: var(--accent-cyan);
+}
+
+.tree-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-vertices {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+.tree-children {
+  padding-left: 16px;
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  margin-left: 8px;
+}
+
+.tree-children.collapsed {
+  display: none;
+}
+
 /* Control Groups */
 .control-group {
   margin-bottom: 20px;
@@ -318,6 +493,53 @@ body, html {
 .switch input:checked + .slider-toggle:before {
   transform: translateX(22px);
   background-color: #000;
+}
+
+/* Model Info Card (shown after model loaded) */
+.model-info {
+  border: 1px solid rgba(0, 242, 254, 0.2);
+  background: rgba(0, 242, 254, 0.04);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.model-info-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.model-info-icon {
+  color: var(--accent-cyan);
+  flex-shrink: 0;
+}
+
+.model-info-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--accent-cyan);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.model-info-stats {
+  display: flex;
+  gap: 16px;
+}
+
+.model-info-stat {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.model-info-stat strong {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Upload Area UI */

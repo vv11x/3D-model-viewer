@@ -23,178 +23,222 @@
           </svg>
           <span>Antigravity 3D</span>
         </div>
-        <h1>仿真相机与环境控制</h1>
-        <p class="subtitle">实时 3D 渲染与参数配置</p>
+        <h1 id="pageTitle">仿真相机与环境控制</h1>
+        <p class="subtitle" id="pageSubtitle">实时 3D 渲染与参数配置</p>
       </div>
 
-      <!-- Model Upload Section -->
-      <div class="control-group">
-        <h2 class="group-title">模型载入</h2>
-        <div class="upload-area" id="uploadArea">
-          <svg viewBox="0 0 24 24" width="32" height="32" class="upload-icon">
-            <path fill="currentColor" d="M19.35,10.04C18.67,6.59 15.64,4 12,4C9.11,4 6.6,5.64 5.35,8.04C2.34,8.36 0,10.91 0,14A6,6 0 0,0 6,20H19A5,5 0 0,0 24,15C24,12.36 21.95,10.22 19.35,10.04M19,18H6A4,4 0 0,1 2,14C2,11.95 3.53,10.24 5.56,10.05L6.63,9.95L7.13,9C8.08,7.14 9.94,6 12,6C14.76,6 17.08,8.1 17.38,10.83L17.58,12.6L19.35,12.72C20.89,12.82 22,14.1 22,15.65C22,17 20.65,18 19,18M10,13.43V17H14V13.43H16.5L12,8.92L7.5,13.43H10Z" />
-          </svg>
-          <p class="upload-text">拖拽 .glb 或 .gltf 模型至此处</p>
-          <span class="upload-or">或者</span>
-          <label class="btn btn-primary" id="btnSelectFileLabel">
-            选择本地模型文件
-            <input type="file" id="modelFileInput" accept=".glb,.gltf" style="display: none;" />
-          </label>
-        </div>
-      </div>
+      <!-- ========== OVERVIEW PAGE ========== -->
+      <div class="page active" id="pageOverview">
 
-      <!-- Sub-meshes list section -->
-      <div class="control-group">
-        <h2 class="group-title">模型子部件</h2>
-        <input type="text" id="txtSearchMesh" placeholder="搜索部件名称..." class="search-input" />
-        <div class="mesh-list" id="meshListContainer">
-          <div class="mesh-placeholder">载入模型后双击部件进行聚焦</div>
-        </div>
-      </div>
-
-      <!-- Selected Mesh Controls -->
-      <div class="control-group" id="selectedMeshPanel" style="display: none;">
-        <h2 class="group-title">部件控制: <span id="lblSelectedMeshName" class="highlight" style="color: var(--accent-cyan);">无</span></h2>
-        <div class="control-row">
-          <button class="btn btn-primary w-full" id="btnLockToSelected">
-            锁定视角到该部件
-          </button>
-        </div>
-        <div class="control-row justify-between">
-          <span class="label-text">使该部件自转</span>
-          <label class="switch">
-            <input type="checkbox" id="chkRotateSelectedMesh" />
-            <span class="slider-toggle"></span>
-          </label>
-        </div>
-      </div>
-
-      <!-- Model Animations Section -->
-      <div class="control-group" id="animationPanel" style="display: none;">
-        <h2 class="group-title">模型动画</h2>
-        
-        <div class="control-row col">
-          <span class="label-text">选择动画轨道</span>
-          <select id="selAnimation" class="select-input"></select>
-        </div>
-
-        <div class="control-row">
-          <button class="btn btn-primary w-full" id="btnPlayPauseAnimation">
-            <svg viewBox="0 0 24 24" width="16" height="16" class="play-icon">
-              <path fill="currentColor" d="M8,5.14V19.14L19,12.14L8,5.14Z" />
+        <!-- Model Upload Section -->
+        <div class="control-group">
+          <h2 class="group-title">模型载入</h2>
+          <div class="upload-area" id="uploadArea">
+            <svg viewBox="0 0 24 24" width="32" height="32" class="upload-icon">
+              <path fill="currentColor" d="M19.35,10.04C18.67,6.59 15.64,4 12,4C9.11,4 6.6,5.64 5.35,8.04C2.34,8.36 0,10.91 0,14A6,6 0 0,0 6,20H19A5,5 0 0,0 24,15C24,12.36 21.95,10.22 19.35,10.04M19,18H6A4,4 0 0,1 2,14C2,11.95 3.53,10.24 5.56,10.05L6.63,9.95L7.13,9C8.08,7.14 9.94,6 12,6C14.76,6 17.08,8.1 17.38,10.83L17.58,12.6L19.35,12.72C20.89,12.82 22,14.1 22,15.65C22,17 20.65,18 19,18M10,13.43V17H14V13.43H16.5L12,8.92L7.5,13.43H10Z" />
             </svg>
-            <span id="btnPlayPauseText">播放动画</span>
-          </button>
-        </div>
-
-        <div class="control-row col">
-          <div class="slider-header">
-            <span class="label-text">播放速度</span>
-            <span class="val-text" id="lblAnimationSpeed">1.0x</span>
+            <p class="upload-text">拖拽 .glb 或 .gltf 模型至此处</p>
+            <span class="upload-or">或者</span>
+            <label class="btn btn-primary" id="btnSelectFileLabel">
+              选择本地模型文件
+              <input type="file" id="modelFileInput" accept=".glb,.gltf" style="display: none;" />
+            </label>
           </div>
-          <input type="range" id="rngAnimationSpeed" min="0.1" max="3.0" step="0.1" value="1.0" class="range-input" />
+          <div class="model-info" id="modelInfoPanel" style="display: none;">
+            <div class="model-info-header">
+              <svg viewBox="0 0 24 24" width="20" height="20" class="model-info-icon">
+                <path fill="currentColor" d="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5M12,4.15L5,8.09V15.91L12,19.85L19,15.91V8.09L12,4.15Z" />
+              </svg>
+              <span class="model-info-name" id="lblModelInfoName">未载入模型</span>
+            </div>
+            <div class="model-info-stats">
+              <span class="model-info-stat"><strong id="lblModelInfoMeshes">0</strong> 网格</span>
+              <span class="model-info-stat"><strong id="lblModelInfoVertices">0</strong> 顶点</span>
+            </div>
+            <div class="model-info-actions">
+              <button class="btn btn-secondary flex-1" id="btnChangeModel">
+                <svg viewBox="0 0 24 24" width="16" height="16">
+                  <path fill="currentColor" d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,6V9L16,5L12,1V4A6,6 0 0,0 6,10H8A4,4 0 0,1 12,6Z" />
+                </svg>
+                更换模型
+              </button>
+              <button class="btn btn-primary flex-1" id="btnViewDetail">
+                <svg viewBox="0 0 24 24" width="16" height="16">
+                  <path fill="currentColor" d="M10,2H14A2,2 0 0,1 16,4V6H20A2,2 0 0,1 22,8V19A2,2 0 0,1 20,21H4A2,2 0 0,1 2,19V8A2,2 0 0,1 4,6H8V4A2,2 0 0,1 10,2M14,6V4H10V6H14M4,8V19H20V8H4Z" />
+                </svg>
+                查看详情
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
 
-      <!-- Camera Settings -->
-      <div class="control-group">
-        <h2 class="group-title">相机参数</h2>
-        <div class="control-row">
-          <button class="btn btn-secondary w-full" id="btnResetCamera">
+        <!-- Camera Settings -->
+        <div class="control-group">
+          <h2 class="group-title">相机参数</h2>
+          <div class="control-row">
+            <button class="btn btn-secondary w-full" id="btnResetCamera">
+              <svg viewBox="0 0 24 24" width="16" height="16">
+                <path fill="currentColor" d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,6V9L16,5L12,1V4A6,6 0 0,0 6,10H8A4,4 0 0,1 12,6Z" />
+              </svg>
+              重置视口
+            </button>
+          </div>
+          <div class="control-row justify-between">
+            <span class="label-text">相机自动旋转</span>
+            <label class="switch">
+              <input type="checkbox" id="chkAutoRotate" />
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+          <div class="control-row justify-between">
+            <span class="label-text">相机对齐并锁定模型</span>
+            <label class="switch">
+              <input type="checkbox" id="chkLockToModel" checked />
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+          <div class="control-row col">
+            <div class="slider-header">
+              <span class="label-text">镜头缩放倍率</span>
+              <span class="val-text" id="lblCameraZoom">1.0x</span>
+            </div>
+            <input type="range" id="rngCameraZoom" min="0.2" max="15.0" step="0.1" value="1.0" class="range-input" />
+          </div>
+        </div>
+
+        <!-- Environment & Lights Settings -->
+        <div class="control-group">
+          <h2 class="group-title">灯光与环境</h2>
+
+          <div class="control-row col">
+            <div class="slider-header">
+              <span class="label-text">直射光强度</span>
+              <span class="val-text" id="lblDirLight">0.8</span>
+            </div>
+            <input type="range" id="rngDirLight" min="0" max="2" step="0.1" value="0.8" class="range-input" />
+          </div>
+
+          <div class="control-row col">
+            <div class="slider-header">
+              <span class="label-text">环境光强度</span>
+              <span class="val-text" id="lblHemiLight">0.6</span>
+            </div>
+            <input type="range" id="rngHemiLight" min="0" max="2" step="0.1" value="0.6" class="range-input" />
+          </div>
+
+          <div class="control-row justify-between">
+            <span class="label-text">显示辅助网格</span>
+            <label class="switch">
+              <input type="checkbox" id="chkShowGrid" checked />
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+
+          <div class="control-row justify-between">
+            <span class="label-text">启用硬阴影</span>
+            <label class="switch">
+              <input type="checkbox" id="chkEnableShadows" checked />
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Advanced Features -->
+        <div class="control-group">
+          <h2 class="group-title">高级调试</h2>
+          <button class="btn btn-secondary w-full" id="btnToggleInspector">
             <svg viewBox="0 0 24 24" width="16" height="16">
-              <path fill="currentColor" d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,6V9L16,5L12,1V4A6,6 0 0,0 6,10H8A4,4 0 0,1 12,6Z" />
+              <path fill="currentColor" d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,6V10H16V12H12V16H10V12H6V10H10V6H12Z" />
             </svg>
-            重置视口
+            打开调试器 (Inspector)
           </button>
         </div>
-        <div class="control-row justify-between">
-          <span class="label-text">相机自动旋转</span>
-          <label class="switch">
-            <input type="checkbox" id="chkAutoRotate" />
-            <span class="slider-toggle"></span>
-          </label>
-        </div>
-        <div class="control-row justify-between">
-          <span class="label-text">相机对齐并锁定模型</span>
-          <label class="switch">
-            <input type="checkbox" id="chkLockToModel" checked />
-            <span class="slider-toggle"></span>
-          </label>
-        </div>
-        <div class="control-row col">
-          <div class="slider-header">
-            <span class="label-text">镜头缩放倍率</span>
-            <span class="val-text" id="lblCameraZoom">1.0x</span>
+
+        <!-- Scene Statistics Info -->
+        <div class="stats-panel">
+          <div class="stat-item">
+            <span class="stat-label">帧率 (FPS)</span>
+            <span class="stat-value highlight" id="statFps">0</span>
           </div>
-          <input type="range" id="rngCameraZoom" min="0.2" max="15.0" step="0.1" value="1.0" class="range-input" />
+          <div class="stat-item">
+            <span class="stat-label">模型网格数</span>
+            <span class="stat-value" id="statMeshes">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">顶点总数</span>
+            <span class="stat-value" id="statVertices">0</span>
+          </div>
+          <div class="stat-item col">
+            <span class="stat-label">当前模型名称</span>
+            <span class="stat-value font-small truncate" id="statModelName">未载入模型</span>
+          </div>
         </div>
       </div>
 
-      <!-- Environment & Lights Settings -->
-      <div class="control-group">
-        <h2 class="group-title">灯光与环境</h2>
-        
-        <div class="control-row col">
-          <div class="slider-header">
-            <span class="label-text">直射光强度</span>
-            <span class="val-text" id="lblDirLight">0.8</span>
+      <!-- ========== DETAIL PAGE ========== -->
+      <div class="page" id="pageDetail">
+
+        <!-- Back Button -->
+        <div class="detail-header">
+          <button class="btn btn-ghost" id="btnBackToOverview">
+            <svg viewBox="0 0 24 24" width="18" height="18">
+              <path fill="currentColor" d="M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z" />
+            </svg>
+            返回概览
+          </button>
+        </div>
+
+        <!-- Model Tree Structure -->
+        <div class="control-group">
+          <h2 class="group-title">模型结构</h2>
+          <input type="text" id="txtSearchMesh" placeholder="搜索部件名称..." class="search-input" />
+          <div class="model-tree" id="modelTreeContainer">
+            <div class="mesh-placeholder">载入模型后查看结构</div>
           </div>
-          <input type="range" id="rngDirLight" min="0" max="2" step="0.1" value="0.8" class="range-input" />
         </div>
 
-        <div class="control-row col">
-          <div class="slider-header">
-            <span class="label-text">环境光强度</span>
-            <span class="val-text" id="lblHemiLight">0.6</span>
+        <!-- Selected Mesh Controls -->
+        <div class="control-group" id="selectedMeshPanel" style="display: none;">
+          <h2 class="group-title">部件控制: <span id="lblSelectedMeshName" class="highlight" style="color: var(--accent-cyan);">无</span></h2>
+          <div class="control-row">
+            <button class="btn btn-primary w-full" id="btnLockToSelected">
+              锁定视角到该部件
+            </button>
           </div>
-          <input type="range" id="rngHemiLight" min="0" max="2" step="0.1" value="0.6" class="range-input" />
+          <div class="control-row justify-between">
+            <span class="label-text">使该部件自转</span>
+            <label class="switch">
+              <input type="checkbox" id="chkRotateSelectedMesh" />
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
         </div>
 
-        <div class="control-row justify-between">
-          <span class="label-text">显示辅助网格</span>
-          <label class="switch">
-            <input type="checkbox" id="chkShowGrid" checked />
-            <span class="slider-toggle"></span>
-          </label>
-        </div>
+        <!-- Model Animations Section -->
+        <div class="control-group" id="animationPanel" style="display: none;">
+          <h2 class="group-title">模型动画</h2>
 
-        <div class="control-row justify-between">
-          <span class="label-text">启用硬阴影</span>
-          <label class="switch">
-            <input type="checkbox" id="chkEnableShadows" checked />
-            <span class="slider-toggle"></span>
-          </label>
-        </div>
-      </div>
+          <div class="control-row col">
+            <span class="label-text">选择动画轨道</span>
+            <select id="selAnimation" class="select-input"></select>
+          </div>
 
-      <!-- Advanced Features -->
-      <div class="control-group">
-        <h2 class="group-title">高级调试</h2>
-        <button class="btn btn-secondary w-full" id="btnToggleInspector">
-          <svg viewBox="0 0 24 24" width="16" height="16">
-            <path fill="currentColor" d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,6V10H16V12H12V16H10V12H6V10H10V6H12Z" />
-          </svg>
-          打开调试器 (Inspector)
-        </button>
-      </div>
+          <div class="control-row">
+            <button class="btn btn-primary w-full" id="btnPlayPauseAnimation">
+              <svg viewBox="0 0 24 24" width="16" height="16" class="play-icon">
+                <path fill="currentColor" d="M8,5.14V19.14L19,12.14L8,5.14Z" />
+              </svg>
+              <span id="btnPlayPauseText">播放动画</span>
+            </button>
+          </div>
 
-      <!-- Scene Statistics Info -->
-      <div class="stats-panel">
-        <div class="stat-item">
-          <span class="stat-label">帧率 (FPS)</span>
-          <span class="stat-value highlight" id="statFps">0</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-label">模型网格数</span>
-          <span class="stat-value" id="statMeshes">0</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-label">顶点总数</span>
-          <span class="stat-value" id="statVertices">0</span>
-        </div>
-        <div class="stat-item col">
-          <span class="stat-label">当前模型名称</span>
-          <span class="stat-value font-small truncate" id="statModelName">未载入模型</span>
+          <div class="control-row col">
+            <div class="slider-header">
+              <span class="label-text">播放速度</span>
+              <span class="val-text" id="lblAnimationSpeed">1.0x</span>
+            </div>
+            <input type="range" id="rngAnimationSpeed" min="0.1" max="3.0" step="0.1" value="1.0" class="range-input" />
+          </div>
         </div>
       </div>
     </div>
