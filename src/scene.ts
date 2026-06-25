@@ -13,7 +13,8 @@ import {
   SceneLoader,
   AbstractMesh,
   LinesMesh,
-  AnimationGroup
+  AnimationGroup,
+  HighlightLayer
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import "@babylonjs/core/Debug/debugLayer";
@@ -40,6 +41,7 @@ export class SceneController {
   private _targetCameraPosition: Vector3 | null = null;
   private _targetCameraRadius: number | null = null;
   private _currentAnimationGroups: AnimationGroup[] = [];
+  private _highlightLayer!: HighlightLayer;
   
   private _isShadowsEnabled: boolean = true;
   public isLockedToTarget: boolean = true;
@@ -65,6 +67,12 @@ export class SceneController {
     this._setupCamera();
     this._setupLights();
     this._setupEnvironment();
+
+    this._highlightLayer = new HighlightLayer("highlight", this.scene);
+    this._highlightLayer.outerGlow = true;
+    this._highlightLayer.innerGlow = false;
+    this._highlightLayer.blurHorizontalSize = 1.0;
+    this._highlightLayer.blurVerticalSize = 1.0;
     
     // Register custom mesh rotation animator and camera focus animator
     this.scene.onBeforeRenderObservable.add(() => {
@@ -299,8 +307,9 @@ export class SceneController {
   }
 
   public selectMesh(meshName: string | null): { name: string; vertices: number; parent: string } | null {
-    // Clear outline of previous selection
+    // Clear highlight and outline of previous selection
     if (this._selectedMesh) {
+      this._highlightLayer.removeMesh(this._selectedMesh as any);
       this._selectedMesh.renderOutline = false;
       this._selectedMesh = null;
     }
@@ -310,9 +319,14 @@ export class SceneController {
     const mesh = this.scene.getMeshByName(meshName);
     if (mesh) {
       this._selectedMesh = mesh;
+
+      // Outline
       mesh.renderOutline = true;
       mesh.outlineColor = new Color3(0, 0.95, 1.0);
       mesh.outlineWidth = 0.04;
+
+      // Glow highlight
+      this._highlightLayer.addMesh(mesh as any, new Color3(0, 0.95, 1.0));
 
       this._lastTargetPosition = null; // Reset to prevent jump
 
@@ -420,6 +434,9 @@ export class SceneController {
   }
 
   public clearCurrentModel() {
+    if (this._selectedMesh) {
+      this._highlightLayer.removeMesh(this._selectedMesh as any);
+    }
     if (this._currentModelRoot) {
       this._currentModelRoot.dispose();
       this._currentModelRoot = null;
