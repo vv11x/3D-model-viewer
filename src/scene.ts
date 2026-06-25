@@ -14,7 +14,7 @@ import {
   AbstractMesh,
   LinesMesh,
   AnimationGroup,
-  HighlightLayer
+  GlowLayer
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import "@babylonjs/core/Debug/debugLayer";
@@ -41,7 +41,7 @@ export class SceneController {
   private _targetCameraPosition: Vector3 | null = null;
   private _targetCameraRadius: number | null = null;
   private _currentAnimationGroups: AnimationGroup[] = [];
-  private _highlightLayer!: HighlightLayer;
+  private _glowLayer!: GlowLayer;
   
   private _isShadowsEnabled: boolean = true;
   public isLockedToTarget: boolean = true;
@@ -68,11 +68,11 @@ export class SceneController {
     this._setupLights();
     this._setupEnvironment();
 
-    this._highlightLayer = new HighlightLayer("highlight", this.scene);
-    this._highlightLayer.outerGlow = true;
-    this._highlightLayer.innerGlow = false;
-    this._highlightLayer.blurHorizontalSize = 1.0;
-    this._highlightLayer.blurVerticalSize = 1.0;
+    this._glowLayer = new GlowLayer("glow", this.scene, {
+      mainTextureFixedSize: 512,
+      blurKernelSize: 64
+    });
+    this._glowLayer.intensity = 0.8;
     
     // Register custom mesh rotation animator and camera focus animator
     this.scene.onBeforeRenderObservable.add(() => {
@@ -307,9 +307,9 @@ export class SceneController {
   }
 
   public selectMesh(meshName: string | null): { name: string; vertices: number; parent: string } | null {
-    // Clear highlight and outline of previous selection
+    // Clear glow and outline of previous selection
     if (this._selectedMesh) {
-      this._highlightLayer.removeMesh(this._selectedMesh as any);
+      this._clearMeshGlow(this._selectedMesh);
       this._selectedMesh.renderOutline = false;
       this._selectedMesh = null;
     }
@@ -325,8 +325,8 @@ export class SceneController {
       mesh.outlineColor = new Color3(0, 0.95, 1.0);
       mesh.outlineWidth = 0.04;
 
-      // Glow highlight
-      this._highlightLayer.addMesh(mesh as any, new Color3(0, 0.95, 1.0));
+      // Glow via emissive color
+      this._applyMeshGlow(mesh, new Color3(0, 0.5, 0.55));
 
       this._lastTargetPosition = null; // Reset to prevent jump
 
@@ -435,7 +435,7 @@ export class SceneController {
 
   public clearCurrentModel() {
     if (this._selectedMesh) {
-      this._highlightLayer.removeMesh(this._selectedMesh as any);
+      this._clearMeshGlow(this._selectedMesh);
     }
     if (this._currentModelRoot) {
       this._currentModelRoot.dispose();
@@ -596,6 +596,22 @@ export class SceneController {
     const size = boundingInfo.boundingBox.maximumWorld.subtract(boundingInfo.boundingBox.minimumWorld);
     const maxDim = Math.max(size.x, size.y, size.z);
     return Math.max(maxDim * 2.0, 0.4);
+  }
+
+  private _applyMeshGlow(mesh: AbstractMesh, color: Color3) {
+    const material = mesh.material;
+    if (material) {
+      (material as any)._savedEmissiveColor = (material as any).emissiveColor?.clone();
+      (material as any).emissiveColor = color;
+    }
+  }
+
+  private _clearMeshGlow(mesh: AbstractMesh) {
+    const material = mesh.material;
+    if (material && (material as any)._savedEmissiveColor) {
+      (material as any).emissiveColor = (material as any)._savedEmissiveColor;
+      delete (material as any)._savedEmissiveColor;
+    }
   }
 
   private _onResize = () => {
