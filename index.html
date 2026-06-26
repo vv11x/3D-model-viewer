@@ -226,6 +226,20 @@
               <span class="slider-toggle"></span>
             </label>
           </div>
+          <div class="control-row justify-between">
+            <span class="label-text">隐藏该部件</span>
+            <label class="switch">
+              <input type="checkbox" id="chkHideSelectedMesh" />
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+          <div class="control-row col">
+            <div class="slider-header">
+              <span class="label-text">部件透明度</span>
+              <span class="val-text" id="lblMeshAlpha">1.0</span>
+            </div>
+            <input type="range" id="rngMeshAlpha" min="0" max="1" step="0.05" value="1" class="range-input" />
+          </div>
         </div>
 
         <!-- Model Animations Section -->

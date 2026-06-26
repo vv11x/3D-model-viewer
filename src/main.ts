@@ -76,6 +76,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnLockToSelected = document.getElementById('btnLockToSelected') as HTMLButtonElement;
   const chkRotateSelectedMesh = document.getElementById('chkRotateSelectedMesh') as HTMLInputElement;
   const chkSelectionHighlight = document.getElementById('chkSelectionHighlight') as HTMLInputElement;
+  const chkHideSelectedMesh = document.getElementById('chkHideSelectedMesh') as HTMLInputElement;
+  const rngMeshAlpha = document.getElementById('rngMeshAlpha') as HTMLInputElement;
+  const lblMeshAlpha = document.getElementById('lblMeshAlpha') as HTMLSpanElement;
 
   // Model Animations UI Elements
   const animationPanel = document.getElementById('animationPanel') as HTMLDivElement;
@@ -121,6 +124,17 @@ document.addEventListener('DOMContentLoaded', () => {
   chkSelectionHighlight.addEventListener('change', (e) => {
     const target = e.target as HTMLInputElement;
     sceneController.setSelectionHighlight(target.checked);
+  });
+
+  chkHideSelectedMesh.addEventListener('change', (e) => {
+    const target = e.target as HTMLInputElement;
+    sceneController.setSelectedMeshVisible(!target.checked);
+  });
+
+  rngMeshAlpha.addEventListener('input', (e) => {
+    const val = parseFloat((e.target as HTMLInputElement).value);
+    lblMeshAlpha.textContent = val.toFixed(2);
+    sceneController.setSelectedMeshAlpha(val);
   });
 
   // 1.1 Camera Zoom Binding
@@ -500,6 +514,9 @@ document.addEventListener('DOMContentLoaded', () => {
       lblSelectedMeshName.textContent = info.name;
       selectedMeshPanel.style.display = 'flex';
       chkRotateSelectedMesh.checked = sceneController.isSelectedMeshRotating();
+      chkHideSelectedMesh.checked = false;
+      rngMeshAlpha.value = '1';
+      lblMeshAlpha.textContent = '1.00';
 
       if (chkLockToModel.checked) {
         sceneController.lockCameraToSelected();

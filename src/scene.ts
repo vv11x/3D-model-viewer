@@ -428,6 +428,40 @@ export class SceneController {
     this._cameraTargetNode.position.copyFrom(center);
   }
 
+  public setSelectedMeshVisible(visible: boolean) {
+    if (this._selectedMesh) {
+      this._selectedMesh.setEnabled(visible);
+    }
+  }
+
+  public isSelectedMeshVisible(): boolean {
+    return this._selectedMesh ? this._selectedMesh.isEnabled() : true;
+  }
+
+  public setSelectedMeshAlpha(alpha: number) {
+    if (this._selectedMesh && this._selectedMesh.material) {
+      const mat = this._selectedMesh.material;
+      if (!(mat as any)._savedAlphaMode) {
+        (mat as any)._savedAlphaMode = mat.alphaMode;
+      }
+      mat.alpha = alpha;
+      if (alpha < 1.0) {
+        mat.transparencyMode = 2; // ALPHA_BLEND
+        mat.needDepthPrePass = true;
+      } else {
+        mat.transparencyMode = 0; // OPAQUE
+        mat.needDepthPrePass = false;
+      }
+    }
+  }
+
+  public getSelectedMeshAlpha(): number {
+    if (this._selectedMesh && this._selectedMesh.material) {
+      return this._selectedMesh.material.alpha;
+    }
+    return 1.0;
+  }
+
   public toggleSelectedMeshRotation(enabled: boolean) {
     if (this._selectedMesh) {
       if (enabled) {
