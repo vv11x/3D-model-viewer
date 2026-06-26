@@ -422,6 +422,10 @@ document.addEventListener('DOMContentLoaded', () => {
           toggle.classList.toggle('expanded');
           childrenContainer.classList.toggle('collapsed');
         });
+
+        row.addEventListener('click', () => {
+          sceneController.focusOnGroup(node.name);
+        });
       } else {
         const placeholder = document.createElement('span');
         placeholder.className = 'tree-toggle-placeholder';

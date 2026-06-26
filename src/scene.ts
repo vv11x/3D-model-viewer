@@ -380,6 +380,35 @@ export class SceneController {
     }
   }
 
+  public focusOnGroup(nodeName: string) {
+    const node = this.scene.getTransformNodeByName(nodeName);
+    if (!node) return;
+
+    const childMeshes = node.getChildMeshes(false);
+    if (childMeshes.length === 0) return;
+
+    let min = new Vector3(Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE);
+    let max = new Vector3(-Number.MAX_VALUE, -Number.MAX_VALUE, -Number.MAX_VALUE);
+
+    childMeshes.forEach((m) => {
+      if (m.getTotalVertices() > 0) {
+        m.computeWorldMatrix(true);
+        const bb = m.getBoundingInfo().boundingBox;
+        min = Vector3.Minimize(min, bb.minimumWorld);
+        max = Vector3.Maximize(max, bb.maximumWorld);
+      }
+    });
+
+    const center = Vector3.Center(min, max);
+    const size = max.subtract(min);
+    const maxDim = Math.max(size.x, size.y, size.z);
+
+    this._lastTargetPosition = null;
+    this._targetCameraPosition = center.clone();
+    this._targetCameraRadius = Math.max(maxDim * 0.9, 0.1);
+    this._cameraTargetNode.position.copyFrom(center);
+  }
+
   public toggleSelectedMeshRotation(enabled: boolean) {
     if (this._selectedMesh) {
       if (enabled) {
