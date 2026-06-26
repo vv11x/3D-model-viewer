@@ -44,6 +44,8 @@ document.addEventListener('DOMContentLoaded', () => {
   
   const rngCameraZoom = document.getElementById('rngCameraZoom') as HTMLInputElement;
   const lblCameraZoom = document.getElementById('lblCameraZoom') as HTMLSpanElement;
+  const rngPanningSpeed = document.getElementById('rngPanningSpeed') as HTMLInputElement;
+  const lblPanningSpeed = document.getElementById('lblPanningSpeed') as HTMLSpanElement;
   
   const rngDirLight = document.getElementById('rngDirLight') as HTMLInputElement;
   const lblDirLight = document.getElementById('lblDirLight') as HTMLSpanElement;
@@ -126,6 +128,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const val = parseFloat((e.target as HTMLInputElement).value);
     lblCameraZoom.textContent = val.toFixed(2) + 'x';
     sceneController.setCameraZoom(val);
+  });
+
+  rngPanningSpeed.addEventListener('input', (e) => {
+    const val = parseFloat((e.target as HTMLInputElement).value);
+    lblPanningSpeed.textContent = val.toFixed(1) + 'x';
+    sceneController.setPanningSpeed(val);
   });
 
   // 1.3 Model Animation Bindings

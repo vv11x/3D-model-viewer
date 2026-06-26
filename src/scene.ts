@@ -169,7 +169,7 @@ export class SceneController {
     this.camera.lowerRadiusLimit = 0.1; // Allow zooming in very close
     this.camera.upperRadiusLimit = 100;
     this.camera.wheelPrecision = 50; // Smooth zooming
-    this.camera.panningSensibility = 1000; // Left click/drag to pan
+    this.camera.panningSensibility = 5000; // Right click/drag to pan (lower = faster)
     
     // Near clipping plane: set to very small to prevent transparent clipping close up
     this.camera.minZ = 0.01;
@@ -276,6 +276,10 @@ export class SceneController {
 
   public setCameraZoom(zoomFactor: number) {
     this.camera.fov = this._defaultFov / zoomFactor;
+  }
+
+  public setPanningSpeed(multiplier: number) {
+    this.camera.panningSensibility = 5000 / multiplier;
   }
 
   public setSelectionHighlight(enabled: boolean) {
