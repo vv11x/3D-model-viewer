@@ -41,6 +41,7 @@ export class SceneController {
   private _targetCameraPosition: Vector3 | null = null;
   private _targetCameraRadius: number | null = null;
   private _currentAnimationGroups: AnimationGroup[] = [];
+  private _animationPlayingState: Map<string, boolean> = new Map();
   private _glowLayer!: GlowLayer;
   private _selectionHighlightEnabled: boolean = false;
   
@@ -489,13 +490,14 @@ export class SceneController {
   public playAnimation(name: string, loop: boolean = true) {
     const ag = this._currentAnimationGroups.find((g) => g.name === name);
     if (ag) {
-      // Pause other animations if they are playing
       this._currentAnimationGroups.forEach((other) => {
-        if (other !== ag) other.stop();
+        if (other !== ag) {
+          other.pause();
+          this._animationPlayingState.set(other.name, false);
+        }
       });
-      if (!ag.isPlaying) {
-        ag.start(loop);
-      }
+      ag.start(loop);
+      this._animationPlayingState.set(name, true);
     }
   }
 
@@ -503,6 +505,7 @@ export class SceneController {
     const ag = this._currentAnimationGroups.find((g) => g.name === name);
     if (ag) {
       ag.pause();
+      this._animationPlayingState.set(name, false);
     }
   }
 
@@ -510,12 +513,12 @@ export class SceneController {
     const ag = this._currentAnimationGroups.find((g) => g.name === name);
     if (ag) {
       ag.stop();
+      this._animationPlayingState.set(name, false);
     }
   }
 
   public isAnimationPlaying(name: string): boolean {
-    const ag = this._currentAnimationGroups.find((g) => g.name === name);
-    return ag ? ag.isPlaying : false;
+    return this._animationPlayingState.get(name) ?? false;
   }
 
   public setAnimationSpeed(name: string, speed: number) {
@@ -553,6 +556,7 @@ export class SceneController {
       ag.dispose();
     });
     this._currentAnimationGroups = [];
+    this._animationPlayingState.clear();
   }
 
   public async loadModelFromFile(file: File): Promise<string> {
