@@ -600,7 +600,7 @@ export class SceneController {
     if (hasValidMesh) {
       const size = max.subtract(min);
       const maxDim = Math.max(size.x, size.y, size.z);
-      return Math.max(maxDim * 1.8, 1.0);
+      return Math.max(maxDim * 1.0, 0.1);
     }
     return 10.0;
   }
@@ -610,7 +610,7 @@ export class SceneController {
     const boundingInfo = mesh.getBoundingInfo();
     const size = boundingInfo.boundingBox.maximumWorld.subtract(boundingInfo.boundingBox.minimumWorld);
     const maxDim = Math.max(size.x, size.y, size.z);
-    return Math.max(maxDim * 2.0, 0.4);
+    return Math.max(maxDim * 0.8, 0.05);
   }
 
   private _applyMeshGlow(mesh: AbstractMesh, color: Color3) {
