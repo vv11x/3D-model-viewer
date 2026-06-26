@@ -73,6 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const lblSelectedMeshName = document.getElementById('lblSelectedMeshName') as HTMLSpanElement;
   const btnLockToSelected = document.getElementById('btnLockToSelected') as HTMLButtonElement;
   const chkRotateSelectedMesh = document.getElementById('chkRotateSelectedMesh') as HTMLInputElement;
+  const chkSelectionHighlight = document.getElementById('chkSelectionHighlight') as HTMLInputElement;
 
   // Model Animations UI Elements
   const animationPanel = document.getElementById('animationPanel') as HTMLDivElement;
@@ -113,6 +114,11 @@ document.addEventListener('DOMContentLoaded', () => {
   chkRotateSelectedMesh.addEventListener('change', (e) => {
     const target = e.target as HTMLInputElement;
     sceneController.toggleSelectedMeshRotation(target.checked);
+  });
+
+  chkSelectionHighlight.addEventListener('change', (e) => {
+    const target = e.target as HTMLInputElement;
+    sceneController.setSelectionHighlight(target.checked);
   });
 
   // 1.1 Camera Zoom Binding

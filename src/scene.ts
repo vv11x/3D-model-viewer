@@ -42,6 +42,7 @@ export class SceneController {
   private _targetCameraRadius: number | null = null;
   private _currentAnimationGroups: AnimationGroup[] = [];
   private _glowLayer!: GlowLayer;
+  private _selectionHighlightEnabled: boolean = false;
   
   private _isShadowsEnabled: boolean = true;
   public isLockedToTarget: boolean = true;
@@ -262,6 +263,21 @@ export class SceneController {
     this.camera.fov = this._defaultFov / zoomFactor;
   }
 
+  public setSelectionHighlight(enabled: boolean) {
+    this._selectionHighlightEnabled = enabled;
+    if (this._selectedMesh) {
+      if (enabled) {
+        this._selectedMesh.renderOutline = true;
+        this._selectedMesh.outlineColor = new Color3(0, 0.95, 1.0);
+        this._selectedMesh.outlineWidth = 0.04;
+        this._applyMeshGlow(this._selectedMesh, new Color3(0, 0.5, 0.55));
+      } else {
+        this._selectedMesh.renderOutline = false;
+        this._clearMeshGlow(this._selectedMesh);
+      }
+    }
+  }
+
   public setCameraTargetLock(lock: boolean) {
     this.isLockedToTarget = lock;
     this._lastTargetPosition = null; // Reset to prevent jump
@@ -320,13 +336,12 @@ export class SceneController {
     if (mesh) {
       this._selectedMesh = mesh;
 
-      // Outline
-      mesh.renderOutline = true;
-      mesh.outlineColor = new Color3(0, 0.95, 1.0);
-      mesh.outlineWidth = 0.04;
-
-      // Glow via emissive color
-      this._applyMeshGlow(mesh, new Color3(0, 0.5, 0.55));
+      if (this._selectionHighlightEnabled) {
+        mesh.renderOutline = true;
+        mesh.outlineColor = new Color3(0, 0.95, 1.0);
+        mesh.outlineWidth = 0.04;
+        this._applyMeshGlow(mesh, new Color3(0, 0.5, 0.55));
+      }
 
       this._lastTargetPosition = null; // Reset to prevent jump
 
