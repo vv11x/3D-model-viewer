@@ -122,10 +122,12 @@ export class SceneController {
         }
       }
       if (this._targetCameraRadius !== null) {
-        this.camera.radius = this.camera.radius + (this._targetCameraRadius - this.camera.radius) * 0.15;
-        if (Math.abs(this.camera.radius - this._targetCameraRadius) < 0.005) {
+        const diff = this._targetCameraRadius - this.camera.radius;
+        if (Math.abs(diff) < 0.005) {
           this.camera.radius = this._targetCameraRadius;
           this._targetCameraRadius = null;
+        } else {
+          this.camera.radius += diff * 0.15;
         }
       }
     });
@@ -137,6 +139,19 @@ export class SceneController {
     
     // Handle resize
     window.addEventListener("resize", this._onResize);
+
+    // Cancel smooth transition when user interacts with camera
+    this._canvas.addEventListener("wheel", () => {
+      this._targetCameraRadius = null;
+      this._targetCameraPosition = null;
+    }, { passive: true });
+
+    this._canvas.addEventListener("pointerdown", (e) => {
+      if (e.button === 0 || e.button === 2) {
+        this._targetCameraRadius = null;
+        this._targetCameraPosition = null;
+      }
+    });
   }
 
   private _setupCamera() {
