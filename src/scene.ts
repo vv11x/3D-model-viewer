@@ -441,16 +441,22 @@ export class SceneController {
   public setSelectedMeshAlpha(alpha: number) {
     if (this._selectedMesh && this._selectedMesh.material) {
       const mat = this._selectedMesh.material;
-      if (!(mat as any)._savedAlphaMode) {
-        (mat as any)._savedAlphaMode = mat.alphaMode;
+      if (!(mat as any)._savedTransparency) {
+        (mat as any)._savedTransparency = {
+          transparencyMode: mat.transparencyMode,
+          needDepthPrePass: mat.needDepthPrePass,
+          alphaMode: mat.alphaMode
+        };
       }
       mat.alpha = alpha;
       if (alpha < 1.0) {
-        mat.transparencyMode = 2; // ALPHA_BLEND
+        mat.transparencyMode = 2;
         mat.needDepthPrePass = true;
       } else {
-        mat.transparencyMode = 0; // OPAQUE
-        mat.needDepthPrePass = false;
+        const saved = (mat as any)._savedTransparency;
+        mat.transparencyMode = saved.transparencyMode;
+        mat.needDepthPrePass = saved.needDepthPrePass;
+        mat.alphaMode = saved.alphaMode;
       }
     }
   }
