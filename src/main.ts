@@ -46,6 +46,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const lblCameraZoom = document.getElementById('lblCameraZoom') as HTMLSpanElement;
   const rngPanningSpeed = document.getElementById('rngPanningSpeed') as HTMLInputElement;
   const lblPanningSpeed = document.getElementById('lblPanningSpeed') as HTMLSpanElement;
+  const rngCameraZoom2 = document.getElementById('rngCameraZoom2') as HTMLInputElement;
+  const lblCameraZoom2 = document.getElementById('lblCameraZoom2') as HTMLSpanElement;
+  const rngPanningSpeed2 = document.getElementById('rngPanningSpeed2') as HTMLInputElement;
+  const lblPanningSpeed2 = document.getElementById('lblPanningSpeed2') as HTMLSpanElement;
   
   const rngDirLight = document.getElementById('rngDirLight') as HTMLInputElement;
   const lblDirLight = document.getElementById('lblDirLight') as HTMLSpanElement;
@@ -138,16 +142,36 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // 1.1 Camera Zoom Binding
-  rngCameraZoom.addEventListener('input', (e) => {
-    const val = parseFloat((e.target as HTMLInputElement).value);
+  function updateCameraZoom(val: number) {
     lblCameraZoom.textContent = val.toFixed(2) + 'x';
+    lblCameraZoom2.textContent = val.toFixed(2) + 'x';
+    rngCameraZoom.value = val.toString();
+    rngCameraZoom2.value = val.toString();
     sceneController.setCameraZoom(val);
+  }
+
+  rngCameraZoom.addEventListener('input', (e) => {
+    updateCameraZoom(parseFloat((e.target as HTMLInputElement).value));
   });
 
-  rngPanningSpeed.addEventListener('input', (e) => {
-    const val = parseFloat((e.target as HTMLInputElement).value);
+  rngCameraZoom2.addEventListener('input', (e) => {
+    updateCameraZoom(parseFloat((e.target as HTMLInputElement).value));
+  });
+
+  function updatePanningSpeed(val: number) {
     lblPanningSpeed.textContent = val.toFixed(1) + 'x';
+    lblPanningSpeed2.textContent = val.toFixed(1) + 'x';
+    rngPanningSpeed.value = val.toString();
+    rngPanningSpeed2.value = val.toString();
     sceneController.setPanningSpeed(val);
+  }
+
+  rngPanningSpeed.addEventListener('input', (e) => {
+    updatePanningSpeed(parseFloat((e.target as HTMLInputElement).value));
+  });
+
+  rngPanningSpeed2.addEventListener('input', (e) => {
+    updatePanningSpeed(parseFloat((e.target as HTMLInputElement).value));
   });
 
   // 1.3 Model Animation Bindings
