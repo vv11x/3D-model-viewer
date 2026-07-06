@@ -9,12 +9,22 @@ import {
   MeshBuilder,
   StandardMaterial,
   Color3,
+  Color4,
   TransformNode,
   SceneLoader,
   AbstractMesh,
   LinesMesh,
   AnimationGroup,
-  GlowLayer
+  GlowLayer,
+  Effect,
+  RenderTargetTexture,
+  PostProcess,
+  Texture,
+  Animation,
+  CubicEase,
+  EasingFunction,
+  type Nullable,
+  type Material
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import "@babylonjs/core/Debug/debugLayer";
@@ -38,8 +48,6 @@ export class SceneController {
   
   private _selectedMesh: AbstractMesh | null = null;
   private _rotatingMeshes: Set<AbstractMesh> = new Set();
-  private _targetCameraPosition: Vector3 | null = null;
-  private _targetCameraRadius: number | null = null;
   private _currentAnimationGroups: AnimationGroup[] = [];
   private _animationPlayingState: Map<string, boolean> = new Map();
   private _glowLayer!: GlowLayer;
@@ -48,6 +56,14 @@ export class SceneController {
   private _isShadowsEnabled: boolean = true;
   public isLockedToTarget: boolean = true;
   private _lastTargetPosition: Vector3 | null = null;
+
+  private _selectionMaskRTT: RenderTargetTexture | null = null;
+  private _sobelOutline: PostProcess | null = null;
+  private _maskMatSelected!: StandardMaterial;
+  private _maskMatBackground!: StandardMaterial;
+  private _outlinedMeshIds: Set<number> = new Set();
+  private outlineColorHex = '#00f5ff';
+  private _isIsolated = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this._canvas = canvas;
@@ -97,9 +113,6 @@ export class SceneController {
             const delta = currentTargetPos.subtract(this._lastTargetPosition);
             if (delta.lengthSquared() > 0.00001) {
               this.camera.target.addInPlace(delta);
-              if (this._targetCameraPosition) {
-                this._targetCameraPosition.addInPlace(delta);
-              }
             }
           }
           if (!this._lastTargetPosition) {
@@ -113,24 +126,6 @@ export class SceneController {
       } else {
         this._lastTargetPosition = null;
       }
-
-      // Smooth camera transition (focus effect)
-      if (this._targetCameraPosition) {
-        this.camera.target = Vector3.Lerp(this.camera.target, this._targetCameraPosition, 0.15);
-        if (Vector3.Distance(this.camera.target, this._targetCameraPosition) < 0.005) {
-          this.camera.target.copyFrom(this._targetCameraPosition);
-          this._targetCameraPosition = null;
-        }
-      }
-      if (this._targetCameraRadius !== null) {
-        const diff = this._targetCameraRadius - this.camera.radius;
-        if (Math.abs(diff) < 0.005) {
-          this.camera.radius = this._targetCameraRadius;
-          this._targetCameraRadius = null;
-        } else {
-          this.camera.radius += diff * 0.15;
-        }
-      }
     });
     
     // Start render loop
@@ -143,16 +138,146 @@ export class SceneController {
 
     // Cancel smooth transition when user interacts with camera
     this._canvas.addEventListener("wheel", () => {
-      this._targetCameraRadius = null;
-      this._targetCameraPosition = null;
+      this.scene.stopAnimation(this.camera, "target");
+      this.scene.stopAnimation(this.camera, "radius");
     }, { passive: true });
 
     this._canvas.addEventListener("pointerdown", (e) => {
       if (e.button === 0 || e.button === 2) {
-        this._targetCameraRadius = null;
-        this._targetCameraPosition = null;
+        this.scene.stopAnimation(this.camera, "target");
+        this.scene.stopAnimation(this.camera, "radius");
       }
     });
+
+    // --- Sobel Outline Initialization ---
+    if (!Effect.ShadersStore["sobelOutlineVertexShader"]) {
+      Effect.ShadersStore["sobelOutlineVertexShader"] = `
+precision highp float;
+attribute vec2 position;
+varying vec2 vUV;
+void main(void) {
+    vUV = (position + 1.0) * 0.5;
+    gl_Position = vec4(position, 0.0, 1.0);
+}
+`;
+    }
+
+    if (!Effect.ShadersStore["sobelOutlineFragmentShader"]) {
+      Effect.ShadersStore["sobelOutlineFragmentShader"] = `
+precision highp float;
+varying vec2 vUV;
+uniform sampler2D textureSampler;
+uniform sampler2D maskSampler;
+uniform vec2 screenSize;
+uniform vec3 outlineColor;
+uniform float threshold;
+uniform float outlineWidth;
+
+void main(void) {
+    vec4 baseColor = texture2D(textureSampler, vUV);
+    vec2 texel = (outlineWidth / screenSize);
+
+    float m00 = texture2D(maskSampler, vUV + texel * vec2(-1.0, -1.0)).r;
+    float m10 = texture2D(maskSampler, vUV + texel * vec2( 0.0, -1.0)).r;
+    float m20 = texture2D(maskSampler, vUV + texel * vec2( 1.0, -1.0)).r;
+    float m01 = texture2D(maskSampler, vUV + texel * vec2(-1.0,  0.0)).r;
+    float m11 = texture2D(maskSampler, vUV + texel * vec2( 0.0,  0.0)).r;
+    float m21 = texture2D(maskSampler, vUV + texel * vec2( 1.0,  0.0)).r;
+    float m02 = texture2D(maskSampler, vUV + texel * vec2(-1.0,  1.0)).r;
+    float m12 = texture2D(maskSampler, vUV + texel * vec2( 0.0,  1.0)).r;
+    float m22 = texture2D(maskSampler, vUV + texel * vec2( 1.0,  1.0)).r;
+
+    float gx = (-m00 + m20) + (-2.0 * m01 + 2.0 * m21) + (-m02 + m22);
+    float gy = (-m00 - 2.0 * m10 - m20) + (m02 + 2.0 * m12 + m22);
+    float mag = sqrt(gx * gx + gy * gy);
+
+    float sel = step(0.5, m11);
+    float edge = step(threshold, mag);
+    float outline = sel * edge;
+
+    vec3 rgb = mix(baseColor.rgb, outlineColor, outline);
+    gl_FragColor = vec4(rgb, baseColor.a);
+}
+`;
+    }
+
+    this._maskMatSelected = new StandardMaterial("mask_selected", this.scene);
+    this._maskMatSelected.disableLighting = true;
+    this._maskMatSelected.emissiveColor = Color3.White();
+    this._maskMatSelected.diffuseColor = Color3.White();
+    this._maskMatSelected.specularColor = Color3.Black();
+
+    this._maskMatBackground = new StandardMaterial("mask_background", this.scene);
+    this._maskMatBackground.disableLighting = true;
+    this._maskMatBackground.emissiveColor = Color3.Black();
+    this._maskMatBackground.diffuseColor = Color3.Black();
+    this._maskMatBackground.specularColor = Color3.Black();
+
+    this._selectionMaskRTT = new RenderTargetTexture(
+        "selection_mask",
+        { width: this.engine.getRenderWidth(), height: this.engine.getRenderHeight() },
+        this.scene,
+        false,
+        true,
+        Engine.TEXTURETYPE_UNSIGNED_INT,
+        false,
+        Texture.NEAREST_SAMPLINGMODE
+    );
+    this._selectionMaskRTT.clearColor = new Color4(0, 0, 0, 1);
+    this.scene.customRenderTargets.push(this._selectionMaskRTT);
+
+    const materialBackup = new Map<any, Nullable<Material>>();
+    this._selectionMaskRTT.onBeforeRenderObservable.add(() => {
+        materialBackup.clear();
+        const list = this._selectionMaskRTT?.renderList ?? [];
+        for (const mesh of list) {
+            if (!mesh) continue;
+            if (!mesh.isEnabled() || !mesh.isVisible) continue;
+            
+            const targetMesh = mesh.getClassName() === "InstancedMesh" ? (mesh as any).sourceMesh : mesh;
+            if (!targetMesh) continue;
+            
+            if (!materialBackup.has(targetMesh)) {
+                materialBackup.set(targetMesh, targetMesh.material);
+                
+                let shouldHighlight = this._outlinedMeshIds.has(targetMesh.uniqueId);
+                if (!shouldHighlight && (targetMesh as any).instances) {
+                    for (const instance of (targetMesh as any).instances) {
+                        if (this._outlinedMeshIds.has(instance.uniqueId)) {
+                            shouldHighlight = true;
+                            break;
+                        }
+                    }
+                }
+                targetMesh.material = shouldHighlight ? this._maskMatSelected : this._maskMatBackground;
+            }
+        }
+    });
+    this._selectionMaskRTT.onAfterRenderObservable.add(() => {
+        materialBackup.forEach((originalMaterial, targetMesh) => {
+            if (targetMesh) {
+                targetMesh.material = originalMaterial;
+            }
+        });
+        materialBackup.clear();
+    });
+
+    this._sobelOutline = new PostProcess(
+        "sobel_outline",
+        "sobelOutline",
+        ["screenSize", "outlineColor", "threshold", "outlineWidth"],
+        ["maskSampler"],
+        1.0,
+        this.camera
+    );
+    this._sobelOutline.onApply = (effect) => {
+        if (this._selectionMaskRTT) effect.setTexture("maskSampler", this._selectionMaskRTT);
+        effect.setFloat2("screenSize", this.engine.getRenderWidth(), this.engine.getRenderHeight());
+        effect.setFloat("threshold", 1);
+        effect.setFloat("outlineWidth", 5);
+        effect.setColor3("outlineColor", Color3.FromHexString(this.outlineColorHex));
+    };
+    // ------------------------------------
   }
 
   private _setupCamera() {
@@ -287,13 +412,9 @@ export class SceneController {
     this._selectionHighlightEnabled = enabled;
     if (this._selectedMesh) {
       if (enabled) {
-        this._selectedMesh.renderOutline = true;
-        this._selectedMesh.outlineColor = new Color3(0, 0.95, 1.0);
-        this._selectedMesh.outlineWidth = 0.04;
-        this._applyMeshGlow(this._selectedMesh, new Color3(0, 0.5, 0.55));
+        this._outlinedMeshIds.add(this._selectedMesh.uniqueId);
       } else {
-        this._selectedMesh.renderOutline = false;
-        this._clearMeshGlow(this._selectedMesh);
+        this._outlinedMeshIds.delete(this._selectedMesh.uniqueId);
       }
     }
   }
@@ -306,16 +427,17 @@ export class SceneController {
         this.lockCameraToSelected();
       } else {
         const center = this._getModelCenterWorld();
-        this._targetCameraPosition = center.clone();
-        this._targetCameraRadius = this._getModelFocusRadius();
+        this._animateCameraTo(center, this._getModelFocusRadius());
       }
     }
   }
 
   public resetCamera() {
-    this._targetCameraPosition = null;
-    this._targetCameraRadius = null;
     this._lastTargetPosition = null; // Reset to prevent jump
+    if (this.scene && this.camera) {
+      this.scene.stopAnimation(this.camera, "target");
+      this.scene.stopAnimation(this.camera, "radius");
+    }
     
     this.camera.alpha = -Math.PI / 4;
     this.camera.beta = Math.PI / 3;
@@ -345,8 +467,7 @@ export class SceneController {
   public selectMesh(meshName: string | null): { name: string; vertices: number; parent: string } | null {
     // Clear glow and outline of previous selection
     if (this._selectedMesh) {
-      this._clearMeshGlow(this._selectedMesh);
-      this._selectedMesh.renderOutline = false;
+      this._outlinedMeshIds.delete(this._selectedMesh.uniqueId);
       this._selectedMesh = null;
     }
 
@@ -357,10 +478,7 @@ export class SceneController {
       this._selectedMesh = mesh;
 
       if (this._selectionHighlightEnabled) {
-        mesh.renderOutline = true;
-        mesh.outlineColor = new Color3(0, 0.95, 1.0);
-        mesh.outlineWidth = 0.04;
-        this._applyMeshGlow(mesh, new Color3(0, 0.5, 0.55));
+        this._outlinedMeshIds.add(mesh.uniqueId);
       }
 
       this._lastTargetPosition = null; // Reset to prevent jump
@@ -369,11 +487,16 @@ export class SceneController {
       mesh.computeWorldMatrix(true);
       const boundingInfo = mesh.getBoundingInfo();
       const center = boundingInfo.boundingBox.centerWorld;
-      this._targetCameraPosition = center.clone();
-      this._targetCameraRadius = this._calculateFocusRadius(mesh);
+      const targetRadius = this._calculateFocusRadius(mesh);
+
+      this._animateCameraTo(center, targetRadius);
 
       // Update camera target node to match this mesh's center
       this._cameraTargetNode.position.copyFrom(center);
+
+      if (this._isIsolated) {
+        this.isolateSelectedMesh(true);
+      }
 
       return {
         name: mesh.name,
@@ -390,10 +513,9 @@ export class SceneController {
       this._selectedMesh.computeWorldMatrix(true);
       const boundingInfo = this._selectedMesh.getBoundingInfo();
       const center = boundingInfo.boundingBox.centerWorld;
+      const targetRadius = this._calculateFocusRadius(this._selectedMesh);
 
-      // Smoothly focus camera onto this sub-mesh center with dynamic radius
-      this._targetCameraPosition = center.clone();
-      this._targetCameraRadius = this._calculateFocusRadius(this._selectedMesh);
+      this._animateCameraTo(center, targetRadius);
 
       // Update camera target node to match this mesh's center
       this._cameraTargetNode.position.copyFrom(center);
@@ -424,8 +546,9 @@ export class SceneController {
     const maxDim = Math.max(size.x, size.y, size.z);
 
     this._lastTargetPosition = null;
-    this._targetCameraPosition = center.clone();
-    this._targetCameraRadius = Math.max(maxDim * 0.9, 0.1);
+    const targetRadius = Math.max(maxDim * 0.9, 0.1);
+    
+    this._animateCameraTo(center, targetRadius);
     this._cameraTargetNode.position.copyFrom(center);
   }
 
@@ -433,6 +556,46 @@ export class SceneController {
     if (this._selectedMesh) {
       this._selectedMesh.setEnabled(visible);
     }
+  }
+
+  public showAllMeshes() {
+    this._isIsolated = false;
+    if (this._currentModelRoot) {
+      this._currentModelRoot.getChildMeshes().forEach((m) => {
+        m.setEnabled(true);
+      });
+    }
+  }
+
+  public isolateSelectedMesh(isolate: boolean) {
+    this._isIsolated = isolate;
+    if (!this._currentModelRoot || !this._selectedMesh) return;
+
+    const childMeshes = this._currentModelRoot.getChildMeshes();
+    childMeshes.forEach((mesh) => {
+      if (mesh === this._selectedMesh) {
+        mesh.setEnabled(true);
+      } else {
+        mesh.setEnabled(!isolate);
+      }
+    });
+
+    if (isolate) {
+      // Zoom camera very close
+      this._selectedMesh.computeWorldMatrix(true);
+      const boundingInfo = this._selectedMesh.getBoundingInfo();
+      const center = boundingInfo.boundingBox.centerWorld;
+      
+      // Calculate closer radius: e.g. 50% of the normal focus radius
+      const baseRadius = this._calculateFocusRadius(this._selectedMesh);
+      const targetRadius = Math.max(baseRadius * 0.4, 0.02);
+      this._animateCameraTo(center, targetRadius);
+      this._cameraTargetNode.position.copyFrom(center);
+    }
+  }
+
+  public isIsolated(): boolean {
+    return this._isIsolated;
   }
 
   public isSelectedMeshVisible(): boolean {
@@ -540,15 +703,16 @@ export class SceneController {
   }
 
   public clearCurrentModel() {
-    if (this._selectedMesh) {
-      this._clearMeshGlow(this._selectedMesh);
-    }
     if (this._currentModelRoot) {
       this._currentModelRoot.dispose();
       this._currentModelRoot = null;
     }
     this._selectedMesh = null;
     this._rotatingMeshes.clear();
+    this._outlinedMeshIds.clear();
+    if (this._selectionMaskRTT) {
+      this._selectionMaskRTT.renderList = [];
+    }
     
     // Stop and dispose old animation groups
     this._currentAnimationGroups.forEach((ag) => {
@@ -612,8 +776,10 @@ export class SceneController {
       this._currentModelRoot = modelRoot;
 
       // Clear any pending camera target animations
-      this._targetCameraPosition = null;
-      this._targetCameraRadius = null;
+      if (this.scene && this.camera) {
+        this.scene.stopAnimation(this.camera, "target");
+        this.scene.stopAnimation(this.camera, "radius");
+      }
       this._lastTargetPosition = null; // Reset to prevent jump
 
       const modelCenter = this._getModelCenterWorld();
@@ -637,6 +803,10 @@ export class SceneController {
     });
     
     this._currentModelRoot = modelRoot;
+    
+    if (this._selectionMaskRTT) {
+      this._selectionMaskRTT.renderList = result.meshes;
+    }
     
     // Store and pause all animation groups by default
     this._currentAnimationGroups = result.animationGroups;
@@ -705,20 +875,41 @@ export class SceneController {
     return Math.max(maxDim * 0.8, 0.05);
   }
 
-  private _applyMeshGlow(mesh: AbstractMesh, color: Color3) {
-    const material = mesh.material;
-    if (material) {
-      (material as any)._savedEmissiveColor = (material as any).emissiveColor?.clone();
-      (material as any).emissiveColor = color;
-    }
-  }
+  private _animateCameraTo(target: Vector3, radius: number) {
+    if (!this.scene || !this.camera) return;
 
-  private _clearMeshGlow(mesh: AbstractMesh) {
-    const material = mesh.material;
-    if (material && (material as any)._savedEmissiveColor) {
-      (material as any).emissiveColor = (material as any)._savedEmissiveColor;
-      delete (material as any)._savedEmissiveColor;
-    }
+    // Stop current focus animations to prevent overlapping
+    this.scene.stopAnimation(this.camera, "target");
+    this.scene.stopAnimation(this.camera, "radius");
+
+    const frameRate = 60;
+    const duration = 0.8;
+    const ease = new CubicEase();
+    ease.setEasingMode(EasingFunction.EASINGMODE_EASEINOUT);
+
+    Animation.CreateAndStartAnimation(
+      "cameraFocusTarget",
+      this.camera,
+      "target",
+      frameRate,
+      frameRate * duration,
+      this.camera.target,
+      target.clone(),
+      Animation.ANIMATIONLOOPMODE_CONSTANT,
+      ease
+    );
+
+    Animation.CreateAndStartAnimation(
+      "cameraFocusRadius",
+      this.camera,
+      "radius",
+      frameRate,
+      frameRate * duration,
+      this.camera.radius,
+      radius,
+      Animation.ANIMATIONLOOPMODE_CONSTANT,
+      ease
+    );
   }
 
   private _onResize = () => {

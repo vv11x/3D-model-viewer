@@ -81,6 +81,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const chkRotateSelectedMesh = document.getElementById('chkRotateSelectedMesh') as HTMLInputElement;
   const chkSelectionHighlight = document.getElementById('chkSelectionHighlight') as HTMLInputElement;
   const chkHideSelectedMesh = document.getElementById('chkHideSelectedMesh') as HTMLInputElement;
+  const btnHideSelected = document.getElementById('btnHideSelected') as HTMLButtonElement;
+  const btnIsolateSelected = document.getElementById('btnIsolateSelected') as HTMLButtonElement;
+  const btnShowAllMeshes = document.getElementById('btnShowAllMeshes') as HTMLButtonElement;
   const rngMeshAlpha = document.getElementById('rngMeshAlpha') as HTMLInputElement;
   const lblMeshAlpha = document.getElementById('lblMeshAlpha') as HTMLSpanElement;
 
@@ -134,6 +137,37 @@ document.addEventListener('DOMContentLoaded', () => {
     const target = e.target as HTMLInputElement;
     sceneController.setSelectedMeshVisible(!target.checked);
   });
+
+  btnHideSelected.addEventListener('click', () => {
+    sceneController.setSelectedMeshVisible(false);
+    chkHideSelectedMesh.checked = true;
+  });
+
+  btnIsolateSelected.addEventListener('click', () => {
+    const isIsolated = sceneController.isIsolated();
+    sceneController.isolateSelectedMesh(!isIsolated);
+    updateIsolateButton(!isIsolated);
+  });
+
+  btnShowAllMeshes.addEventListener('click', () => {
+    sceneController.showAllMeshes();
+    chkHideSelectedMesh.checked = false;
+    updateIsolateButton(false);
+  });
+
+  function updateIsolateButton(isIsolated: boolean) {
+    if (isIsolated) {
+      btnIsolateSelected.textContent = "取消独占";
+      btnIsolateSelected.style.background = "var(--accent-cyan)";
+      btnIsolateSelected.style.color = "#000";
+      btnIsolateSelected.style.border = "none";
+    } else {
+      btnIsolateSelected.textContent = "独占聚焦";
+      btnIsolateSelected.style.background = "transparent";
+      btnIsolateSelected.style.color = "var(--accent-cyan)";
+      btnIsolateSelected.style.border = "1px solid var(--accent-cyan)";
+    }
+  }
 
   rngMeshAlpha.addEventListener('input', (e) => {
     const val = parseFloat((e.target as HTMLInputElement).value);
@@ -541,12 +575,14 @@ document.addEventListener('DOMContentLoaded', () => {
       chkHideSelectedMesh.checked = false;
       rngMeshAlpha.value = '1';
       lblMeshAlpha.textContent = '1.00';
+      updateIsolateButton(sceneController.isIsolated());
 
       if (chkLockToModel.checked) {
         sceneController.lockCameraToSelected();
       }
     } else {
       selectedMeshPanel.style.display = 'none';
+      updateIsolateButton(false);
     }
   }
 

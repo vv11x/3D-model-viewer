@@ -197,7 +197,12 @@
 
         <!-- Model Tree Structure -->
         <div class="control-group">
-          <h2 class="group-title">模型结构</h2>
+          <div class="control-row justify-between" style="margin-bottom: 4px;">
+            <h2 class="group-title" style="margin-bottom: 0;">模型结构</h2>
+            <button class="btn btn-ghost" id="btnShowAllMeshes" style="padding: 2px 8px; font-size: 0.75rem; height: auto;">
+              显示全部
+            </button>
+          </div>
           <input type="text" id="txtSearchMesh" placeholder="搜索部件名称..." class="search-input" />
           <div class="model-tree" id="modelTreeContainer">
             <div class="mesh-placeholder">载入模型后查看结构</div>
@@ -207,9 +212,15 @@
         <!-- Selected Mesh Controls -->
         <div class="control-group" id="selectedMeshPanel" style="display: none;">
           <h2 class="group-title">部件控制: <span id="lblSelectedMeshName" class="highlight" style="color: var(--accent-cyan);">无</span></h2>
-          <div class="control-row">
-            <button class="btn btn-primary w-full" id="btnLockToSelected">
-              锁定视角到该部件
+          <div class="control-row" style="display: flex; gap: 6px;">
+            <button class="btn btn-primary" id="btnLockToSelected" style="flex: 1; font-size: 0.8rem; padding: 10px 4px;">
+              锁定视角
+            </button>
+            <button class="btn" id="btnIsolateSelected" style="flex: 1; font-size: 0.8rem; padding: 10px 4px; border: 1px solid var(--accent-cyan); background: transparent; color: var(--accent-cyan); font-weight: 600;">
+              独占聚焦
+            </button>
+            <button class="btn" id="btnHideSelected" style="flex: 1; font-size: 0.8rem; padding: 10px 4px; background: var(--danger); color: #fff; font-weight: 600;">
+              隐藏模型
             </button>
           </div>
           <div class="control-row justify-between">
