@@ -23,6 +23,8 @@ import {
   Animation,
   CubicEase,
   EasingFunction,
+  PointerDragBehavior,
+  Quaternion,
   type Nullable,
   type Material
 } from "@babylonjs/core";
@@ -56,6 +58,8 @@ export class SceneController {
   private _isShadowsEnabled: boolean = true;
   public isLockedToTarget: boolean = true;
   private _lastTargetPosition: Vector3 | null = null;
+  private _isTransitioningTarget: boolean = false;
+  private _transitionTargetVector: Vector3 | null = null;
 
   private _selectionMaskRTT: RenderTargetTexture | null = null;
   private _sobelOutline: PostProcess | null = null;
@@ -63,7 +67,16 @@ export class SceneController {
   private _maskMatBackground!: StandardMaterial;
   private _outlinedMeshIds: Set<number> = new Set();
   private outlineColorHex = '#00f5ff';
-  private _isIsolated = false;
+
+  private _cachedModelCenterWorld: Vector3 | null = null;
+  private _cachedModelFocusRadius: number | null = null;
+  private _dragBehavior: PointerDragBehavior | null = null;
+  private _initialTransforms: Map<AbstractMesh, {
+    position: Vector3;
+    rotation: Vector3;
+    rotationQuaternion: Nullable<Quaternion>;
+    scaling: Vector3;
+  }> = new Map();
 
   constructor(canvas: HTMLCanvasElement) {
     this._canvas = canvas;
@@ -98,30 +111,42 @@ export class SceneController {
         mesh.rotate(Vector3.Up(), 0.02);
       });
 
-      // Camera target tracking if lock is enabled
-      if (this.isLockedToTarget) {
-        let currentTargetPos: Vector3 | null = null;
-        if (this._selectedMesh) {
-          this._selectedMesh.computeWorldMatrix(true);
-          currentTargetPos = this._selectedMesh.getBoundingInfo().boundingBox.centerWorld;
-        } else if (this._currentModelRoot) {
-          currentTargetPos = this._getModelCenterWorld();
-        }
+      // 1. 获取当前需要聚焦或跟踪的网格/模型的世界坐标位置
+      let currentTargetPos: Vector3 | null = null;
+      if (this._selectedMesh) {
+        this._selectedMesh.computeWorldMatrix(true);
+        currentTargetPos = this._selectedMesh.getBoundingInfo().boundingBox.centerWorld;
+      } else if (this._isTransitioningTarget && this._transitionTargetVector) {
+        currentTargetPos = this._transitionTargetVector;
+      } else if (this._currentModelRoot) {
+        currentTargetPos = this._getModelCenterWorld();
+      }
 
-        if (currentTargetPos) {
-          if (this._lastTargetPosition) {
-            const delta = currentTargetPos.subtract(this._lastTargetPosition);
-            if (delta.lengthSquared() > 0.00001) {
-              this.camera.target.addInPlace(delta);
-            }
-          }
-          if (!this._lastTargetPosition) {
+      // 2. 如果正在进行平滑过渡
+      if (currentTargetPos && this._isTransitioningTarget) {
+        this.camera.target = Vector3.Lerp(this.camera.target, currentTargetPos, 0.1);
+        
+        // 如果相机目标已经足够接近目标网格位置，结束过渡
+        if (Vector3.Distance(this.camera.target, currentTargetPos) < 0.01) {
+          this._isTransitioningTarget = false;
+          this._transitionTargetVector = null;
+          if (this.isLockedToTarget) {
             this._lastTargetPosition = currentTargetPos.clone();
-          } else {
-            this._lastTargetPosition.copyFrom(currentTargetPos);
           }
+        }
+      } 
+      // 3. 如果在非过渡状态下开启了锁定跟随
+      else if (currentTargetPos && this.isLockedToTarget) {
+        if (this._lastTargetPosition) {
+          const delta = currentTargetPos.subtract(this._lastTargetPosition);
+          if (delta.lengthSquared() > 0.00001) {
+            this.camera.target.addInPlace(delta);
+          }
+        }
+        if (!this._lastTargetPosition) {
+          this._lastTargetPosition = currentTargetPos.clone();
         } else {
-          this._lastTargetPosition = null;
+          this._lastTargetPosition.copyFrom(currentTargetPos);
         }
       } else {
         this._lastTargetPosition = null;
@@ -138,14 +163,12 @@ export class SceneController {
 
     // Cancel smooth transition when user interacts with camera
     this._canvas.addEventListener("wheel", () => {
-      this.scene.stopAnimation(this.camera, "target");
-      this.scene.stopAnimation(this.camera, "radius");
+      this.stopCameraTransition();
     }, { passive: true });
 
     this._canvas.addEventListener("pointerdown", (e) => {
       if (e.button === 0 || e.button === 2) {
-        this.scene.stopAnimation(this.camera, "target");
-        this.scene.stopAnimation(this.camera, "radius");
+        this.stopCameraTransition();
       }
     });
 
@@ -239,17 +262,7 @@ void main(void) {
             
             if (!materialBackup.has(targetMesh)) {
                 materialBackup.set(targetMesh, targetMesh.material);
-                
-                let shouldHighlight = this._outlinedMeshIds.has(targetMesh.uniqueId);
-                if (!shouldHighlight && (targetMesh as any).instances) {
-                    for (const instance of (targetMesh as any).instances) {
-                        if (this._outlinedMeshIds.has(instance.uniqueId)) {
-                            shouldHighlight = true;
-                            break;
-                        }
-                    }
-                }
-                targetMesh.material = shouldHighlight ? this._maskMatSelected : this._maskMatBackground;
+                targetMesh.material = this._maskMatSelected;
             }
         }
     });
@@ -416,6 +429,7 @@ void main(void) {
       } else {
         this._outlinedMeshIds.delete(this._selectedMesh.uniqueId);
       }
+      this._updateSelectionMaskRenderList();
     }
   }
 
@@ -433,11 +447,7 @@ void main(void) {
   }
 
   public resetCamera() {
-    this._lastTargetPosition = null; // Reset to prevent jump
-    if (this.scene && this.camera) {
-      this.scene.stopAnimation(this.camera, "target");
-      this.scene.stopAnimation(this.camera, "radius");
-    }
+    this.stopCameraTransition();
     
     this.camera.alpha = -Math.PI / 4;
     this.camera.beta = Math.PI / 3;
@@ -465,46 +475,54 @@ void main(void) {
   }
 
   public selectMesh(meshName: string | null): { name: string; vertices: number; parent: string } | null {
+    // Clear drag behavior of previous selection if any
+    if (this._dragBehavior && this._selectedMesh) {
+      this._selectedMesh.removeBehavior(this._dragBehavior);
+      this._dragBehavior = null;
+    }
+
     // Clear glow and outline of previous selection
     if (this._selectedMesh) {
       this._outlinedMeshIds.delete(this._selectedMesh.uniqueId);
       this._selectedMesh = null;
     }
 
-    if (!meshName) return null;
+    if (!meshName) {
+      this._updateSelectionMaskRenderList();
+      return null;
+    }
 
     const mesh = this.scene.getMeshByName(meshName);
-    if (mesh) {
-      this._selectedMesh = mesh;
-
-      if (this._selectionHighlightEnabled) {
-        this._outlinedMeshIds.add(mesh.uniqueId);
-      }
-
-      this._lastTargetPosition = null; // Reset to prevent jump
-
-      // Smoothly focus camera onto this sub-mesh center with dynamic radius
-      mesh.computeWorldMatrix(true);
-      const boundingInfo = mesh.getBoundingInfo();
-      const center = boundingInfo.boundingBox.centerWorld;
-      const targetRadius = this._calculateFocusRadius(mesh);
-
-      this._animateCameraTo(center, targetRadius);
-
-      // Update camera target node to match this mesh's center
-      this._cameraTargetNode.position.copyFrom(center);
-
-      if (this._isIsolated) {
-        this.isolateSelectedMesh(true);
-      }
-
-      return {
-        name: mesh.name,
-        vertices: mesh.getTotalVertices(),
-        parent: mesh.parent ? mesh.parent.name : "无"
-      };
+    if (!mesh) {
+      this._updateSelectionMaskRenderList();
+      throw new Error(`Mesh "${meshName}" was not found in the scene.`);
     }
-    return null;
+
+    this._selectedMesh = mesh;
+
+    if (this._selectionHighlightEnabled) {
+      this._outlinedMeshIds.add(mesh.uniqueId);
+    }
+
+    this._updateSelectionMaskRenderList();
+    this._lastTargetPosition = null; // Reset to prevent jump
+
+    // Smoothly focus camera onto this sub-mesh center with dynamic radius
+    mesh.computeWorldMatrix(true);
+    const boundingInfo = mesh.getBoundingInfo();
+    const center = boundingInfo.boundingBox.centerWorld;
+    const targetRadius = this._calculateFocusRadius(mesh);
+
+    this._animateCameraTo(center, targetRadius);
+
+    // Update camera target node to match this mesh's center
+    this._cameraTargetNode.position.copyFrom(center);
+
+    return {
+      name: mesh.name,
+      vertices: mesh.getTotalVertices(),
+      parent: mesh.parent ? mesh.parent.name : "无"
+    };
   }
 
   public lockCameraToSelected() {
@@ -524,10 +542,14 @@ void main(void) {
 
   public focusOnGroup(nodeName: string) {
     const node = this.scene.getTransformNodeByName(nodeName);
-    if (!node) return;
+    if (!node) {
+      throw new Error(`TransformNode "${nodeName}" was not found in the scene.`);
+    }
 
     const childMeshes = node.getChildMeshes(false);
-    if (childMeshes.length === 0) return;
+    if (childMeshes.length === 0) {
+      throw new Error(`TransformNode "${nodeName}" does not contain any child meshes to focus on.`);
+    }
 
     let min = new Vector3(Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE);
     let max = new Vector3(-Number.MAX_VALUE, -Number.MAX_VALUE, -Number.MAX_VALUE);
@@ -553,13 +575,13 @@ void main(void) {
   }
 
   public setSelectedMeshVisible(visible: boolean) {
-    if (this._selectedMesh) {
-      this._selectedMesh.setEnabled(visible);
+    if (!this._selectedMesh) {
+      throw new Error("Cannot set mesh visibility: No mesh is currently selected.");
     }
+    this._selectedMesh.setEnabled(visible);
   }
 
   public showAllMeshes() {
-    this._isIsolated = false;
     if (this._currentModelRoot) {
       this._currentModelRoot.getChildMeshes().forEach((m) => {
         m.setEnabled(true);
@@ -567,83 +589,126 @@ void main(void) {
     }
   }
 
-  public isolateSelectedMesh(isolate: boolean) {
-    this._isIsolated = isolate;
-    if (!this._currentModelRoot || !this._selectedMesh) return;
-
-    const childMeshes = this._currentModelRoot.getChildMeshes();
-    childMeshes.forEach((mesh) => {
-      if (mesh === this._selectedMesh) {
-        mesh.setEnabled(true);
-      } else {
-        mesh.setEnabled(!isolate);
-      }
-    });
-
-    if (isolate) {
-      // Zoom camera very close
-      this._selectedMesh.computeWorldMatrix(true);
-      const boundingInfo = this._selectedMesh.getBoundingInfo();
-      const center = boundingInfo.boundingBox.centerWorld;
-      
-      // Calculate closer radius: e.g. 50% of the normal focus radius
-      const baseRadius = this._calculateFocusRadius(this._selectedMesh);
-      const targetRadius = Math.max(baseRadius * 0.4, 0.02);
-      this._animateCameraTo(center, targetRadius);
-      this._cameraTargetNode.position.copyFrom(center);
-    }
-  }
-
-  public isIsolated(): boolean {
-    return this._isIsolated;
-  }
-
   public isSelectedMeshVisible(): boolean {
     return this._selectedMesh ? this._selectedMesh.isEnabled() : true;
   }
 
   public setSelectedMeshAlpha(alpha: number) {
-    if (this._selectedMesh && this._selectedMesh.material) {
-      const mat = this._selectedMesh.material;
-      if (!(mat as any)._savedTransparency) {
-        (mat as any)._savedTransparency = {
-          transparencyMode: mat.transparencyMode,
-          needDepthPrePass: mat.needDepthPrePass,
-          alphaMode: mat.alphaMode
-        };
-      }
-      mat.alpha = alpha;
-      if (alpha < 1.0) {
-        mat.transparencyMode = 2;
-        mat.needDepthPrePass = true;
-      } else {
-        const saved = (mat as any)._savedTransparency;
-        mat.transparencyMode = saved.transparencyMode;
-        mat.needDepthPrePass = saved.needDepthPrePass;
-        mat.alphaMode = saved.alphaMode;
-      }
+    if (!this._selectedMesh) {
+      throw new Error("Cannot set mesh alpha: No mesh is currently selected.");
+    }
+    if (!this._selectedMesh.material) {
+      throw new Error(`Cannot set mesh alpha: Selected mesh "${this._selectedMesh.name}" has no material.`);
+    }
+
+    const mat = this._selectedMesh.material;
+    if (!(mat as any)._savedTransparency) {
+      (mat as any)._savedTransparency = {
+        transparencyMode: mat.transparencyMode,
+        needDepthPrePass: mat.needDepthPrePass,
+        alphaMode: mat.alphaMode
+      };
+    }
+    mat.alpha = alpha;
+    if (alpha < 1.0) {
+      mat.transparencyMode = 2;
+      mat.needDepthPrePass = true;
+    } else {
+      const saved = (mat as any)._savedTransparency;
+      mat.transparencyMode = saved.transparencyMode;
+      mat.needDepthPrePass = saved.needDepthPrePass;
+      mat.alphaMode = saved.alphaMode;
     }
   }
 
   public getSelectedMeshAlpha(): number {
-    if (this._selectedMesh && this._selectedMesh.material) {
-      return this._selectedMesh.material.alpha;
+    if (!this._selectedMesh) {
+      throw new Error("Cannot get mesh alpha: No mesh is currently selected.");
     }
-    return 1.0;
+    if (!this._selectedMesh.material) {
+      throw new Error(`Cannot get mesh alpha: Selected mesh "${this._selectedMesh.name}" has no material.`);
+    }
+    return this._selectedMesh.material.alpha;
   }
 
   public toggleSelectedMeshRotation(enabled: boolean) {
-    if (this._selectedMesh) {
-      if (enabled) {
-        this._rotatingMeshes.add(this._selectedMesh);
-      } else {
-        this._rotatingMeshes.delete(this._selectedMesh);
-      }
+    if (!this._selectedMesh) {
+      throw new Error("Cannot toggle mesh rotation: No mesh is currently selected.");
+    }
+    if (enabled) {
+      this._rotatingMeshes.add(this._selectedMesh);
+    } else {
+      this._rotatingMeshes.delete(this._selectedMesh);
     }
   }
 
   public isSelectedMeshRotating(): boolean {
-    return this._selectedMesh ? this._rotatingMeshes.has(this._selectedMesh) : false;
+    if (!this._selectedMesh) {
+      throw new Error("Cannot check mesh rotation: No mesh is currently selected.");
+    }
+    return this._rotatingMeshes.has(this._selectedMesh);
+  }
+
+  private _cacheInitialTransform(mesh: AbstractMesh) {
+    if (!this._initialTransforms.has(mesh)) {
+      this._initialTransforms.set(mesh, {
+        position: mesh.position.clone(),
+        rotation: mesh.rotation.clone(),
+        rotationQuaternion: mesh.rotationQuaternion ? mesh.rotationQuaternion.clone() : null,
+        scaling: mesh.scaling.clone()
+      });
+    }
+  }
+
+  public toggleDragSelectedMesh(enabled: boolean) {
+    if (!this._selectedMesh) return;
+
+    if (enabled) {
+      this._cacheInitialTransform(this._selectedMesh);
+
+      if (this._dragBehavior) {
+        this._selectedMesh.removeBehavior(this._dragBehavior);
+      }
+
+      this._dragBehavior = new PointerDragBehavior();
+      
+      // Prevent camera from rotating while dragging
+      this._dragBehavior.onDragStartObservable.add(() => {
+        this.camera.detachControl();
+      });
+
+      this._dragBehavior.onDragEndObservable.add(() => {
+        this.camera.attachControl(this._canvas, true);
+      });
+
+      this._selectedMesh.addBehavior(this._dragBehavior);
+    } else {
+      if (this._dragBehavior && this._selectedMesh) {
+        this._selectedMesh.removeBehavior(this._dragBehavior);
+      }
+      this._dragBehavior = null;
+    }
+  }
+
+  public resetSelectedMeshPosition() {
+    if (!this._selectedMesh) return;
+    const initial = this._initialTransforms.get(this._selectedMesh);
+    if (initial) {
+      this._selectedMesh.position.copyFrom(initial.position);
+      this._selectedMesh.rotation.copyFrom(initial.rotation);
+      if (initial.rotationQuaternion) {
+        if (this._selectedMesh.rotationQuaternion) {
+          this._selectedMesh.rotationQuaternion.copyFrom(initial.rotationQuaternion);
+        } else {
+          this._selectedMesh.rotationQuaternion = initial.rotationQuaternion.clone();
+        }
+      } else {
+        this._selectedMesh.rotationQuaternion = null;
+      }
+      this._selectedMesh.scaling.copyFrom(initial.scaling);
+      
+      this._selectedMesh.computeWorldMatrix(true);
+    }
   }
 
   public getAnimationNames(): string[] {
@@ -652,32 +717,35 @@ void main(void) {
 
   public playAnimation(name: string, loop: boolean = true) {
     const ag = this._currentAnimationGroups.find((g) => g.name === name);
-    if (ag) {
-      this._currentAnimationGroups.forEach((other) => {
-        if (other !== ag) {
-          other.pause();
-          this._animationPlayingState.set(other.name, false);
-        }
-      });
-      ag.start(loop);
-      this._animationPlayingState.set(name, true);
+    if (!ag) {
+      throw new Error(`Animation group "${name}" was not found in the loaded model.`);
     }
+    this._currentAnimationGroups.forEach((other) => {
+      if (other !== ag) {
+        other.pause();
+        this._animationPlayingState.set(other.name, false);
+      }
+    });
+    ag.start(loop);
+    this._animationPlayingState.set(name, true);
   }
 
   public pauseAnimation(name: string) {
     const ag = this._currentAnimationGroups.find((g) => g.name === name);
-    if (ag) {
-      ag.pause();
-      this._animationPlayingState.set(name, false);
+    if (!ag) {
+      throw new Error(`Animation group "${name}" was not found to pause.`);
     }
+    ag.pause();
+    this._animationPlayingState.set(name, false);
   }
 
   public stopAnimation(name: string) {
     const ag = this._currentAnimationGroups.find((g) => g.name === name);
-    if (ag) {
-      ag.stop();
-      this._animationPlayingState.set(name, false);
+    if (!ag) {
+      throw new Error(`Animation group "${name}" was not found to stop.`);
     }
+    ag.stop();
+    this._animationPlayingState.set(name, false);
   }
 
   public isAnimationPlaying(name: string): boolean {
@@ -686,9 +754,10 @@ void main(void) {
 
   public setAnimationSpeed(name: string, speed: number) {
     const ag = this._currentAnimationGroups.find((g) => g.name === name);
-    if (ag) {
-      ag.speedRatio = speed;
+    if (!ag) {
+      throw new Error(`Animation group "${name}" was not found to set speed ratio.`);
     }
+    ag.speedRatio = speed;
   }
 
   public toggleInspector() {
@@ -710,6 +779,8 @@ void main(void) {
     this._selectedMesh = null;
     this._rotatingMeshes.clear();
     this._outlinedMeshIds.clear();
+    this._cachedModelCenterWorld = null;
+    this._cachedModelFocusRadius = null;
     if (this._selectionMaskRTT) {
       this._selectionMaskRTT.renderList = [];
     }
@@ -776,11 +847,7 @@ void main(void) {
       this._currentModelRoot = modelRoot;
 
       // Clear any pending camera target animations
-      if (this.scene && this.camera) {
-        this.scene.stopAnimation(this.camera, "target");
-        this.scene.stopAnimation(this.camera, "radius");
-      }
-      this._lastTargetPosition = null; // Reset to prevent jump
+      this.stopCameraTransition();
 
       const modelCenter = this._getModelCenterWorld();
       const modelRadius = this._getModelFocusRadius();
@@ -805,7 +872,7 @@ void main(void) {
     this._currentModelRoot = modelRoot;
     
     if (this._selectionMaskRTT) {
-      this._selectionMaskRTT.renderList = result.meshes;
+      this._selectionMaskRTT.renderList = [];
     }
     
     // Store and pause all animation groups by default
@@ -819,6 +886,9 @@ void main(void) {
   }
 
   private _getModelCenterWorld(): Vector3 {
+    if (this._cachedModelCenterWorld) {
+      return this._cachedModelCenterWorld;
+    }
     if (!this._currentModelRoot) {
       return this._cameraTargetNode.position;
     }
@@ -837,12 +907,16 @@ void main(void) {
     });
     
     if (hasValidMesh) {
-      return Vector3.Center(min, max);
+      this._cachedModelCenterWorld = Vector3.Center(min, max);
+      return this._cachedModelCenterWorld;
     }
     return this._currentModelRoot.absolutePosition;
   }
 
   private _getModelFocusRadius(): number {
+    if (this._cachedModelFocusRadius !== null) {
+      return this._cachedModelFocusRadius;
+    }
     if (!this._currentModelRoot) return 10.0;
     
     let min = new Vector3(Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE);
@@ -862,7 +936,8 @@ void main(void) {
     if (hasValidMesh) {
       const size = max.subtract(min);
       const maxDim = Math.max(size.x, size.y, size.z);
-      return Math.max(maxDim * 1.0, 0.1);
+      this._cachedModelFocusRadius = Math.max(maxDim * 1.0, 0.1);
+      return this._cachedModelFocusRadius;
     }
     return 10.0;
   }
@@ -887,17 +962,9 @@ void main(void) {
     const ease = new CubicEase();
     ease.setEasingMode(EasingFunction.EASINGMODE_EASEINOUT);
 
-    Animation.CreateAndStartAnimation(
-      "cameraFocusTarget",
-      this.camera,
-      "target",
-      frameRate,
-      frameRate * duration,
-      this.camera.target,
-      target.clone(),
-      Animation.ANIMATIONLOOPMODE_CONSTANT,
-      ease
-    );
+    this._isTransitioningTarget = true;
+    this._transitionTargetVector = target.clone();
+    this._lastTargetPosition = null; // Reset to prevent jump
 
     Animation.CreateAndStartAnimation(
       "cameraFocusRadius",
@@ -912,9 +979,50 @@ void main(void) {
     );
   }
 
+  public stopCameraTransition() {
+    this._isTransitioningTarget = false;
+    this._transitionTargetVector = null;
+    if (this.scene && this.camera) {
+      this.scene.stopAnimation(this.camera, "target");
+      this.scene.stopAnimation(this.camera, "radius");
+    }
+    if (this.isLockedToTarget) {
+      this._resetLastTargetPosition();
+    }
+  }
+
+  private _resetLastTargetPosition() {
+    let currentTargetPos: Vector3 | null = null;
+    if (this._selectedMesh) {
+      this._selectedMesh.computeWorldMatrix(true);
+      currentTargetPos = this._selectedMesh.getBoundingInfo().boundingBox.centerWorld;
+    } else if (this._currentModelRoot) {
+      currentTargetPos = this._getModelCenterWorld();
+    }
+    if (currentTargetPos) {
+      this._lastTargetPosition = currentTargetPos.clone();
+    } else {
+      this._lastTargetPosition = null;
+    }
+  }
+
   private _onResize = () => {
     this.engine.resize();
   };
+
+  private _updateSelectionMaskRenderList() {
+    if (!this._selectionMaskRTT) return;
+    
+    const list: AbstractMesh[] = [];
+    if (this._currentModelRoot) {
+      this._currentModelRoot.getChildMeshes().forEach((mesh) => {
+        if (this._outlinedMeshIds.has(mesh.uniqueId)) {
+          list.push(mesh);
+        }
+      });
+    }
+    this._selectionMaskRTT.renderList = list;
+  }
 
   public dispose() {
     window.removeEventListener("resize", this._onResize);

@@ -82,8 +82,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const chkSelectionHighlight = document.getElementById('chkSelectionHighlight') as HTMLInputElement;
   const chkHideSelectedMesh = document.getElementById('chkHideSelectedMesh') as HTMLInputElement;
   const btnHideSelected = document.getElementById('btnHideSelected') as HTMLButtonElement;
-  const btnIsolateSelected = document.getElementById('btnIsolateSelected') as HTMLButtonElement;
   const btnShowAllMeshes = document.getElementById('btnShowAllMeshes') as HTMLButtonElement;
+  const chkClickToSelect = document.getElementById('chkClickToSelect') as HTMLInputElement;
+  const btnDragSelected = document.getElementById('btnDragSelected') as HTMLButtonElement;
+  const btnResetSelectedPosition = document.getElementById('btnResetSelectedPosition') as HTMLButtonElement;
   const rngMeshAlpha = document.getElementById('rngMeshAlpha') as HTMLInputElement;
   const lblMeshAlpha = document.getElementById('lblMeshAlpha') as HTMLSpanElement;
 
@@ -143,29 +145,34 @@ document.addEventListener('DOMContentLoaded', () => {
     chkHideSelectedMesh.checked = true;
   });
 
-  btnIsolateSelected.addEventListener('click', () => {
-    const isIsolated = sceneController.isIsolated();
-    sceneController.isolateSelectedMesh(!isIsolated);
-    updateIsolateButton(!isIsolated);
-  });
-
   btnShowAllMeshes.addEventListener('click', () => {
     sceneController.showAllMeshes();
     chkHideSelectedMesh.checked = false;
-    updateIsolateButton(false);
   });
 
-  function updateIsolateButton(isIsolated: boolean) {
-    if (isIsolated) {
-      btnIsolateSelected.textContent = "取消独占";
-      btnIsolateSelected.style.background = "var(--accent-cyan)";
-      btnIsolateSelected.style.color = "#000";
-      btnIsolateSelected.style.border = "none";
+  let isDraggingEnabled = false;
+
+  btnDragSelected.addEventListener('click', () => {
+    isDraggingEnabled = !isDraggingEnabled;
+    sceneController.toggleDragSelectedMesh(isDraggingEnabled);
+    updateDragButton(isDraggingEnabled);
+  });
+
+  btnResetSelectedPosition.addEventListener('click', () => {
+    sceneController.resetSelectedMeshPosition();
+  });
+
+  function updateDragButton(enabled: boolean) {
+    if (enabled) {
+      btnDragSelected.textContent = "停止拖拽";
+      btnDragSelected.style.background = "var(--accent-cyan)";
+      btnDragSelected.style.color = "#000";
+      btnDragSelected.style.border = "none";
     } else {
-      btnIsolateSelected.textContent = "独占聚焦";
-      btnIsolateSelected.style.background = "transparent";
-      btnIsolateSelected.style.color = "var(--accent-cyan)";
-      btnIsolateSelected.style.border = "1px solid var(--accent-cyan)";
+      btnDragSelected.textContent = "拖拽零件";
+      btnDragSelected.style.background = "transparent";
+      btnDragSelected.style.color = "var(--accent-cyan)";
+      btnDragSelected.style.border = "1px solid var(--accent-cyan)";
     }
   }
 
@@ -575,14 +582,18 @@ document.addEventListener('DOMContentLoaded', () => {
       chkHideSelectedMesh.checked = false;
       rngMeshAlpha.value = '1';
       lblMeshAlpha.textContent = '1.00';
-      updateIsolateButton(sceneController.isIsolated());
+
+      // Reset drag state for new selection
+      isDraggingEnabled = false;
+      updateDragButton(false);
 
       if (chkLockToModel.checked) {
         sceneController.lockCameraToSelected();
       }
     } else {
       selectedMeshPanel.style.display = 'none';
-      updateIsolateButton(false);
+      isDraggingEnabled = false;
+      updateDragButton(false);
     }
   }
 
@@ -630,6 +641,44 @@ document.addEventListener('DOMContentLoaded', () => {
       const name = pickResult.pickedMesh.name;
       if (name !== "shadowGround" && name !== "gridLines" && name !== "grid") {
         selectMeshByName(name);
+      }
+    }
+  });
+
+  // Direct 3D Raycast selection single click listener (when chkClickToSelect is enabled)
+  let pointerDownTime = 0;
+  let pointerDownX = 0;
+  let pointerDownY = 0;
+
+  canvas.addEventListener('pointerdown', (e) => {
+    pointerDownTime = Date.now();
+    pointerDownX = e.clientX;
+    pointerDownY = e.clientY;
+  });
+
+  canvas.addEventListener('pointerup', (e) => {
+    if (!chkClickToSelect.checked) return;
+
+    const clickDuration = Date.now() - pointerDownTime;
+    const dragDistance = Math.sqrt(
+      Math.pow(e.clientX - pointerDownX, 2) + Math.pow(e.clientY - pointerDownY, 2)
+    );
+
+    // If it's a quick tap/click without drag
+    if (clickDuration < 250 && dragDistance < 5) {
+      const pickResult = sceneController.scene.pick(
+        sceneController.scene.pointerX,
+        sceneController.scene.pointerY
+      );
+      if (pickResult && pickResult.hit && pickResult.pickedMesh) {
+        const name = pickResult.pickedMesh.name;
+        if (name !== "shadowGround" && name !== "gridLines" && name !== "grid") {
+          selectMeshByName(name);
+          
+          // Auto-enable outline outline/highlight
+          chkSelectionHighlight.checked = true;
+          sceneController.setSelectionHighlight(true);
+        }
       }
     }
   });
