@@ -45,6 +45,8 @@ export class CameraManager {
   private _lastTargetPosition: Vector3 | null = null;
   private _tmpFitVector: Vector3 = Vector3.Zero();
 
+  private _panningSpeedMultiplier: number = 1.0;
+
   constructor(scene: Scene, canvas: HTMLCanvasElement, cameraTargetNode: TransformNode) {
     this._scene = scene;
     this._canvas = canvas;
@@ -68,22 +70,23 @@ export class CameraManager {
     this.camera.lowerRadiusLimit = CameraManager.MIN_ZOOM_DISTANCE;
     this.camera.upperRadiusLimit = 100;
     this.camera.wheelPrecision = 50;
-    this.camera.wheelDeltaPercentage = 0.01;
-    this.camera.panningSensibility = 5000;
+    this.camera.wheelDeltaPercentage = 0.04; // 滚轮缩放比例提升至 4% (更加快速灵敏)
     this.camera.minZ = 0.01;
 
     this.camera.setTarget(this._cameraTargetNode.position);
     this._defaultFov = this.camera.fov;
     this.camera.attachControl(this._canvas, true);
+    this._updatePanningSensibility();
   }
 
   private _registerRenderObserver(): void {
     this._scene.onBeforeRenderObservable.add(() => {
-      // 1. Notify radius changes and dynamically update minZ clipping plane
+      // 1. Notify radius changes and dynamically update minZ clipping plane & adaptive panning sensibility
       const radius = this.camera.radius;
       if (radius !== this._lastNotifiedRadius) {
         this._lastNotifiedRadius = radius;
         this.camera.minZ = Math.min(0.01, Math.max(radius * 0.01, 0.0001));
+        this._updatePanningSensibility();
         if (this.onCameraRadiusChanged) {
           this.onCameraRadiusChanged(radius);
         }
@@ -217,7 +220,17 @@ export class CameraManager {
   }
 
   public setPanningSpeed(multiplier: number): void {
-    this.camera.panningSensibility = 5000 / multiplier;
+    this._panningSpeedMultiplier = Math.max(multiplier, 0.01);
+    this._updatePanningSensibility();
+  }
+
+  private _updatePanningSensibility(): void {
+    const radius = Math.max(this.camera.radius, CameraManager.MIN_ZOOM_DISTANCE);
+    const baseSensibility = 5000 / this._panningSpeedMultiplier;
+    // 自适应右键平移灵敏度：结合镜头当前距离 (radius) 平滑缩放。
+    // 特写放大（高倍率/近距离）时自动提高灵敏度数值，使右键平移细腻顺畅；拉远时流畅快速。
+    const adaptiveFactor = Math.pow(radius / 10.0, 0.25);
+    this.camera.panningSensibility = Math.max(10, baseSensibility / adaptiveFactor);
   }
 
   public toggleAutoRotate(enabled: boolean): void {
