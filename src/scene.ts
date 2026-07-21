@@ -398,7 +398,7 @@ export class SceneController {
     ensureWorldMatrixUpdated(mesh);
     const bb = mesh.getBoundingInfo().boundingBox;
     const center = bb.centerWorld;
-    return this.cameraManager.computeFitRadius(center, bb.minimumWorld, bb.maximumWorld, 0.9, [mesh]);
+    return this.cameraManager.computeFitRadius(center, bb.minimumWorld, bb.maximumWorld, 1.8, [mesh]);
   }
 
   private _onResize = () => {

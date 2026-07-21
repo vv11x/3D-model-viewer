@@ -194,7 +194,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // 滑块采用对数刻度，1.0x = 模型默认聚焦距离，向右最远可推进到距离目标 0.01。
   const ZOOM_SLIDER_STEPS = 1000;
   const MIN_ZOOM_FACTOR = 0.2; // 最远拉远到 0.2x
-  const MIN_ZOOM_DISTANCE = 0.01; // 与相机 lowerRadiusLimit 一致
+  const MIN_ZOOM_DISTANCE = 0.0001; // 与相机 lowerRadiusLimit 一致 (允许超级特写微距放大)
 
   function getMaxZoomFactor(): number {
     return Math.max(sceneController.getBaseRadius() / MIN_ZOOM_DISTANCE, MIN_ZOOM_FACTOR * 1.001);

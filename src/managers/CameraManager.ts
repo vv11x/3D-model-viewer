@@ -29,7 +29,7 @@ export function ensureWorldMatrixUpdated(node: TransformNode | AbstractMesh): vo
 }
 
 export class CameraManager {
-  public static readonly MIN_ZOOM_DISTANCE = 0.01;
+  public static readonly MIN_ZOOM_DISTANCE = 0.0001;
 
   public camera: ArcRotateCamera;
   public isLockedToTarget: boolean = true;
