@@ -31,6 +31,14 @@ document.addEventListener('DOMContentLoaded', () => {
       pageDetail.classList.add('active');
       pageTitle.textContent = '模型详情';
       pageSubtitle.textContent = '结构、部件与动画';
+      
+      // Scroll to active tree item when page becomes visible
+      setTimeout(() => {
+        const activeRow = modelTreeContainer.querySelector('.tree-row.active');
+        if (activeRow) {
+          activeRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+      }, 50);
     }
   }
 
@@ -106,8 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // 1. Camera Bindings
   btnResetCamera.addEventListener('click', () => {
     sceneController.resetCamera();
-    rngCameraZoom.value = '1.0';
-    lblCameraZoom.textContent = '1.00x';
+    syncZoomUI();
   });
 
   chkAutoRotate.addEventListener('change', (e) => {
@@ -183,21 +190,58 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // 1.1 Camera Zoom Binding
-  function updateCameraZoom(val: number) {
-    lblCameraZoom.textContent = val.toFixed(2) + 'x';
-    lblCameraZoom2.textContent = val.toFixed(2) + 'x';
-    rngCameraZoom.value = val.toString();
-    rngCameraZoom2.value = val.toString();
-    sceneController.setCameraZoom(val);
+  // 滑块与鼠标滚轮使用同一套“相机距离(radius)”机制，二者完全等价：
+  // 滑块采用对数刻度，1.0x = 模型默认聚焦距离，向右最远可推进到距离目标 0.01。
+  const ZOOM_SLIDER_STEPS = 1000;
+  const MIN_ZOOM_FACTOR = 0.2; // 最远拉远到 0.2x
+  const MIN_ZOOM_DISTANCE = 0.01; // 与相机 lowerRadiusLimit 一致
+
+  function getMaxZoomFactor(): number {
+    return Math.max(sceneController.getBaseRadius() / MIN_ZOOM_DISTANCE, MIN_ZOOM_FACTOR * 1.001);
   }
 
-  rngCameraZoom.addEventListener('input', (e) => {
-    updateCameraZoom(parseFloat((e.target as HTMLInputElement).value));
-  });
+  function sliderToZoom(sliderVal: number): number {
+    const maxZoom = getMaxZoomFactor();
+    const t = Math.min(Math.max(sliderVal / ZOOM_SLIDER_STEPS, 0), 1);
+    return Math.exp(Math.log(MIN_ZOOM_FACTOR) + t * (Math.log(maxZoom) - Math.log(MIN_ZOOM_FACTOR)));
+  }
 
-  rngCameraZoom2.addEventListener('input', (e) => {
-    updateCameraZoom(parseFloat((e.target as HTMLInputElement).value));
-  });
+  function zoomToSlider(zoom: number): number {
+    const maxZoom = getMaxZoomFactor();
+    const t = (Math.log(zoom) - Math.log(MIN_ZOOM_FACTOR)) / (Math.log(maxZoom) - Math.log(MIN_ZOOM_FACTOR));
+    return Math.round(Math.min(Math.max(t, 0), 1) * ZOOM_SLIDER_STEPS);
+  }
+
+  function formatZoom(zoom: number): string {
+    return zoom >= 100 ? zoom.toFixed(0) + 'x' : zoom.toFixed(2) + 'x';
+  }
+
+  function syncZoomUI() {
+    const zoom = sceneController.getCurrentZoom();
+    const sliderVal = zoomToSlider(zoom).toString();
+    const text = formatZoom(zoom);
+    // 正在拖动中的滑块不回写，避免干扰拖拽
+    if (document.activeElement !== rngCameraZoom) rngCameraZoom.value = sliderVal;
+    if (document.activeElement !== rngCameraZoom2) rngCameraZoom2.value = sliderVal;
+    lblCameraZoom.textContent = text;
+    lblCameraZoom2.textContent = text;
+  }
+
+  // 滚轮缩放 / 聚焦动画同样会改变相机距离 —— 实时同步两个滑块与读数
+  sceneController.onCameraRadiusChanged = () => syncZoomUI();
+
+  function onZoomSliderInput(e: Event) {
+    const sliderVal = parseFloat((e.target as HTMLInputElement).value);
+    sceneController.setCameraZoom(sliderToZoom(sliderVal));
+    const text = formatZoom(sceneController.getCurrentZoom());
+    lblCameraZoom.textContent = text;
+    lblCameraZoom2.textContent = text;
+  }
+
+  rngCameraZoom.addEventListener('input', onZoomSliderInput);
+  rngCameraZoom2.addEventListener('input', onZoomSliderInput);
+
+  syncZoomUI();
 
   function updatePanningSpeed(val: number) {
     lblPanningSpeed.textContent = val.toFixed(1) + 'x';
@@ -216,6 +260,12 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // 1.3 Model Animation Bindings
+  sceneController.animationManager.onAnimationEnded = (animName) => {
+    if (selAnimation.value === animName) {
+      updatePlayPauseButton(false);
+    }
+  };
+
   btnPlayPauseAnimation.addEventListener('click', () => {
     const activeAnim = selAnimation.value;
     if (!activeAnim) return;
@@ -391,9 +441,8 @@ document.addEventListener('DOMContentLoaded', () => {
         uploadArea.style.display = 'none';
         modelInfoPanel.style.display = 'flex';
         
-        rngCameraZoom.value = '1.0';
-        lblCameraZoom.textContent = '1.00x';
         sceneController.setCameraZoom(1.0);
+        syncZoomUI();
         
         // Build model tree
         txtSearchMesh.value = '';
@@ -570,10 +619,27 @@ document.addEventListener('DOMContentLoaded', () => {
     activeRows.forEach((el) => el.classList.remove('active'));
 
     if (info) {
-      const targetRow = modelTreeContainer.querySelector(`[data-mesh="${CSS.escape(info.name)}"]`);
+      const targetRow = modelTreeContainer.querySelector(`[data-mesh="${CSS.escape(info.name)}"]`) as HTMLElement;
       if (targetRow) {
         targetRow.classList.add('active');
-        targetRow.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        
+        // Ensure parent containers are uncollapsed before scrolling!
+        let parent = targetRow.parentElement;
+        while (parent && parent !== modelTreeContainer) {
+          if (parent.classList.contains('tree-children') && parent.classList.contains('collapsed')) {
+             parent.classList.remove('collapsed');
+             const prevSibling = parent.previousElementSibling;
+             if (prevSibling) {
+               const toggle = prevSibling.querySelector('.tree-toggle');
+               if (toggle) toggle.classList.add('expanded');
+             }
+          }
+          parent = parent.parentElement;
+        }
+
+        setTimeout(() => {
+          targetRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }, 50);
       }
 
       lblSelectedMeshName.textContent = info.name;
