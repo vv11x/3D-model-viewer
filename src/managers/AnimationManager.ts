@@ -3,6 +3,7 @@ import { AnimationGroup, Observer } from "@babylonjs/core";
 export class AnimationManager {
   private _animationGroups: AnimationGroup[] = [];
   private _animationPlayingState: Map<string, boolean> = new Map();
+  private _hasEndedMap: Map<string, boolean> = new Map();
   private _endObservers: Map<AnimationGroup, Observer<AnimationGroup>> = new Map();
 
   /** Callback fired when an animation group naturally ends playing. */
@@ -15,10 +16,12 @@ export class AnimationManager {
     this._animationGroups.forEach((ag) => {
       ag.stop();
       this._animationPlayingState.set(ag.name, false);
+      this._hasEndedMap.set(ag.name, true);
 
       // Listen for animation completion to auto-sync state
       const observer = ag.onAnimationGroupEndObservable.add((group) => {
         this._animationPlayingState.set(group.name, false);
+        this._hasEndedMap.set(group.name, true);
         if (this.onAnimationEnded) {
           this.onAnimationEnded(group.name);
         }
@@ -47,12 +50,17 @@ export class AnimationManager {
       }
     });
 
-    // FIX Bug 2: If the animation is already at the end frame or stopped, reset it back to frame 0 first!
-    if (!ag.isPlaying) {
+    const hasEnded = this._hasEndedMap.get(name) ?? true;
+
+    // Resume seamlessly if paused mid-way; reset to start if finished or stopped
+    if (ag.isStarted && !hasEnded) {
+      ag.play(loop);
+    } else {
       ag.reset();
+      ag.start(loop);
     }
 
-    ag.start(loop);
+    this._hasEndedMap.set(name, false);
     this._animationPlayingState.set(name, true);
   }
 
@@ -72,6 +80,7 @@ export class AnimationManager {
     }
     ag.stop();
     ag.reset();
+    this._hasEndedMap.set(name, true);
     this._animationPlayingState.set(name, false);
   }
 
@@ -98,6 +107,7 @@ export class AnimationManager {
     });
     this._animationGroups = [];
     this._animationPlayingState.clear();
+    this._hasEndedMap.clear();
     this._endObservers.clear();
   }
 }
