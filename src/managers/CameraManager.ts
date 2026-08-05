@@ -181,7 +181,7 @@ export class CameraManager {
       this._scene.stopAnimation(this.camera, "radius");
     }
     if (this.isLockedToTarget) {
-      this._lastTargetPosition = this.camera.target.clone();
+      this._lastTargetPosition = this._cameraTargetNode.position.clone();
     } else {
       this._lastTargetPosition = null;
     }

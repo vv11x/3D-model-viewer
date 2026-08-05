@@ -72,10 +72,12 @@ body, html {
   display: flex;
   flex-direction: column;
   padding: 24px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
-  transition: var(--transition-smooth);
+  overflow: visible;
+  transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.dashboard.collapsed {
+  transform: translateX(calc(-100% - 20px));
 }
 
 .dashboard:hover {
@@ -99,6 +101,53 @@ body, html {
 
 .dashboard::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.2);
+}
+
+/* Dashboard Collapse Toggle */
+.dashboard-toggle {
+  position: absolute;
+  top: 50%;
+  right: -24px; /* stick out to the right */
+  transform: translateY(-50%);
+  width: 24px;
+  height: 64px;
+  background: var(--panel-bg);
+  backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--panel-border);
+  border-left: none; /* merge with sidebar */
+  border-radius: 0 8px 8px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: -1; /* so border doesn't overlap dashboard inside visually */
+  color: var(--text-secondary);
+  transition: all 0.3s ease;
+  box-shadow: 4px 0 12px rgba(0, 0, 0, 0.2);
+  
+  /* Hidden by default, appears on hover */
+  opacity: 0;
+  transform: translateY(-50%) translateX(-8px);
+}
+
+.dashboard:hover .dashboard-toggle,
+.dashboard-toggle:hover {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
+.dashboard-toggle:hover {
+  background: rgba(0, 242, 254, 0.15);
+  color: var(--accent-cyan);
+  box-shadow: 4px 0 15px rgba(0, 242, 254, 0.25);
+}
+
+.toggle-icon {
+  transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.dashboard.collapsed .toggle-icon {
+  transform: rotate(180deg);
 }
 
 /* Header */

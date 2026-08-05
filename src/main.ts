@@ -20,6 +20,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnViewDetail = document.getElementById('btnViewDetail') as HTMLButtonElement;
   const btnBackToOverview = document.getElementById('btnBackToOverview') as HTMLButtonElement;
 
+  const uiDashboard = document.getElementById('uiDashboard') as HTMLDivElement;
+  const btnToggleDashboard = document.getElementById('btnToggleDashboard') as HTMLDivElement;
+  
+  if (btnToggleDashboard && uiDashboard) {
+    btnToggleDashboard.addEventListener('click', () => {
+      uiDashboard.classList.toggle('collapsed');
+    });
+  }
+
   function showPage(page: 'overview' | 'detail') {
     if (page === 'overview') {
       pageOverview.classList.add('active');
@@ -645,9 +654,15 @@ document.addEventListener('DOMContentLoaded', () => {
       lblSelectedMeshName.textContent = info.name;
       selectedMeshPanel.style.display = 'flex';
       chkRotateSelectedMesh.checked = sceneController.isSelectedMeshRotating();
-      chkHideSelectedMesh.checked = false;
-      rngMeshAlpha.value = '1';
-      lblMeshAlpha.textContent = '1.00';
+      chkHideSelectedMesh.checked = !sceneController.isSelectedMeshVisible();
+      try {
+        const currentAlpha = sceneController.getSelectedMeshAlpha();
+        rngMeshAlpha.value = currentAlpha.toString();
+        lblMeshAlpha.textContent = currentAlpha.toFixed(2);
+      } catch (e) {
+        rngMeshAlpha.value = '1';
+        lblMeshAlpha.textContent = '1.00';
+      }
 
       // Reset drag state for new selection
       isDraggingEnabled = false;
