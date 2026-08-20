@@ -19,11 +19,13 @@ import "@babylonjs/core/Debug/debugLayer";
 import "@babylonjs/inspector";
 
 import { CameraManager, ensureWorldMatrixUpdated } from "./managers/CameraManager";
-import { AnimationManager } from "./managers/AnimationManager";
-import { SelectionManager } from "./managers/SelectionManager";
+import { AnimationManager, type AnimationRange } from "./managers/AnimationManager";
+import { SelectionManager, type SelectionInfo, type OutlineAlgorithmType, type OutlineParams } from "./managers/SelectionManager";
 import { ModelLoader, type TreeNode } from "./managers/ModelLoader";
+import { MeshRoundingManager, type RoundingAlgorithmMode, type RoundingParams } from "./managers/MeshRoundingManager";
+import { DebugManager, type ShadingMode, type PerformanceStats } from "./managers/DebugManager";
 
-export type { TreeNode };
+export type { TreeNode, SelectionInfo, AnimationRange, OutlineAlgorithmType, OutlineParams, RoundingAlgorithmMode, RoundingParams, ShadingMode, PerformanceStats };
 
 export class SceneController {
   public static readonly MIN_ZOOM_DISTANCE = CameraManager.MIN_ZOOM_DISTANCE;
@@ -36,6 +38,8 @@ export class SceneController {
   public animationManager: AnimationManager;
   public selectionManager: SelectionManager;
   public modelLoader: ModelLoader;
+  public meshRoundingManager: MeshRoundingManager;
+  public debugManager: DebugManager;
 
   private _hemiLight!: HemisphericLight;
   private _dirLight!: DirectionalLight;
@@ -45,6 +49,7 @@ export class SceneController {
   private _cameraTargetNode!: TransformNode;
   private _glowLayer!: GlowLayer;
   private _isShadowsEnabled: boolean = true;
+  private _lastInspectorVisible: boolean = false;
 
   constructor(canvas: HTMLCanvasElement, engine?: Engine) {
     this._canvas = canvas;
@@ -66,8 +71,10 @@ export class SceneController {
     // Initialize Managers
     this.cameraManager = new CameraManager(this.scene, this._canvas, this._cameraTargetNode);
     this.animationManager = new AnimationManager();
-    this.selectionManager = new SelectionManager(this.scene, this.engine, this.cameraManager.camera, this._canvas);
+    this.selectionManager = new SelectionManager(this.scene, this.cameraManager.camera, this._canvas);
     this.modelLoader = new ModelLoader(this.scene);
+    this.meshRoundingManager = new MeshRoundingManager();
+    this.debugManager = new DebugManager(this.scene);
 
     this._setupLights();
     this._setupEnvironment();
@@ -78,12 +85,28 @@ export class SceneController {
     });
     this._glowLayer.intensity = 0.8;
 
-    // Start render loop
+    // Start render loop and Inspector Lifecycle Guard
+    this._registerSceneObservers();
     this.engine.runRenderLoop(() => {
       this.scene.render();
     });
 
     window.addEventListener("resize", this._onResize);
+  }
+
+  private _registerSceneObservers(): void {
+    this.scene.onBeforeRenderObservable.add(() => {
+      // Inspector Lifecycle Guard: Detects internal close or collapse and auto-syncs layout
+      const isVisible = Boolean(
+        this.scene.debugLayer.isVisible() &&
+        document.querySelector('#scene-explorer-host, #inspector-host, .inspector-wrapper')
+      );
+      if (isVisible !== this._lastInspectorVisible) {
+        this._lastInspectorVisible = isVisible;
+        document.body.classList.toggle('inspector-open', isVisible);
+        this.engine.resize();
+      }
+    });
   }
 
   public get camera(): ArcRotateCamera {
@@ -181,8 +204,8 @@ export class SceneController {
 
   public getBaseRadius(): number {
     return this.modelLoader.currentModelRoot
-      ? this.modelLoader.getModelFocusRadius((c, min, max, m, meshes) =>
-          this.cameraManager.computeFitRadius(c, min, max, m, meshes)
+      ? this.modelLoader.getModelFocusRadius((c, min, max, m) =>
+          this.cameraManager.computeFitRadius(c, min, max, m)
         )
       : 10.0;
   }
@@ -196,27 +219,58 @@ export class SceneController {
   }
 
   public setSelectionHighlight(enabled: boolean): void {
-    this.selectionManager.setSelectionHighlight(enabled, this.modelLoader.currentModelRoot);
+    this.selectionManager.setSelectionHighlight(enabled);
+  }
+
+  public isSelectionHighlightEnabled(): boolean {
+    return this.selectionManager.isSelectionHighlightEnabled();
+  }
+
+  // ==================== 6 大独立描边算法与参数调控 APIs ====================
+  public setOutlineAlgorithm(algorithm: OutlineAlgorithmType): void {
+    this.selectionManager.setOutlineAlgorithm(algorithm);
+  }
+
+  public getOutlineAlgorithm(): OutlineAlgorithmType {
+    return this.selectionManager.getOutlineAlgorithm();
+  }
+
+  public getOutlineAlgorithms(): { id: OutlineAlgorithmType; name: string; category: 'official' | 'advanced'; description: string }[] {
+    return this.selectionManager.getOutlineAlgorithms();
+  }
+
+  public setOutlineParams(params: Partial<OutlineParams>): void {
+    this.selectionManager.setOutlineParams(params);
+  }
+
+  public getOutlineParams(): OutlineParams {
+    return this.selectionManager.getOutlineParams();
+  }
+
+  public setOutlineColor(hex: string): void {
+    this.selectionManager.setOutlineColor(hex);
+  }
+
+  public getOutlineColorHex(): string {
+    return this.selectionManager.getOutlineColorHex();
+  }
+
+  public setOutlineWidth(width: number): void {
+    this.selectionManager.setOutlineWidth(width);
+  }
+
+  public getOutlineWidth(): number {
+    return this.selectionManager.getOutlineWidth();
   }
 
   public setCameraTargetLock(lock: boolean): void {
-    const focusCenter = this.selectionManager.selectedMesh
-      ? this.selectionManager.selectedMesh.getBoundingInfo().boundingBox.centerWorld
-      : this.modelLoader.getModelCenterWorld(this._cameraTargetNode.position);
-
-    const focusRadius = this.selectionManager.selectedMesh
-      ? this._calculateFocusRadius(this.selectionManager.selectedMesh)
-      : this.getBaseRadius();
-
-    this.cameraManager.setCameraTargetLock(lock, focusCenter, focusRadius);
+    const focusTarget = this._getFocusTargetCenterAndRadius();
+    this.cameraManager.setCameraTargetLock(lock, focusTarget.center, focusTarget.radius);
   }
 
   public resetCamera(): void {
     const defaultRadius = this.getBaseRadius();
-    const targetCenter = this.selectionManager.selectedMesh
-      ? this.selectionManager.selectedMesh.getBoundingInfo().boundingBox.centerWorld
-      : this.modelLoader.getModelCenterWorld(this._cameraTargetNode.position);
-
+    const targetCenter = this.modelLoader.getModelCenterWorld(this._cameraTargetNode.position);
     this.cameraManager.resetCamera(defaultRadius, targetCenter);
   }
 
@@ -224,115 +278,114 @@ export class SceneController {
     this.cameraManager.toggleAutoRotate(enabled);
   }
 
-  public selectMesh(meshName: string | null): { name: string; vertices: number; parent: string } | null {
-    const info = this.selectionManager.selectMeshByName(meshName);
-    this.selectionManager.updateSelectionMaskRenderList(this.modelLoader.currentModelRoot);
+  public selectTarget(targetName: string | null): SelectionInfo | null {
+    const info = this.selectionManager.selectTargetByName(targetName);
 
-    if (info && this.selectionManager.selectedMesh) {
-      const mesh = this.selectionManager.selectedMesh;
-      ensureWorldMatrixUpdated(mesh);
-
-      const boundingInfo = mesh.getBoundingInfo();
-      const center = boundingInfo.boundingBox.centerWorld;
-      const targetRadius = this._calculateFocusRadius(mesh);
-
-      this.cameraManager.animateCameraTo(center, targetRadius);
+    if (info && this.selectionManager.selectedTarget) {
+      const focusTarget = this._getFocusTargetCenterAndRadius();
+      this.cameraManager.animateCameraTo(focusTarget.center, focusTarget.radius);
     }
     return info;
   }
 
-  public lockCameraToSelected(): void {
-    const mesh = this.selectionManager.selectedMesh;
-    if (mesh) {
-      ensureWorldMatrixUpdated(mesh);
-      const boundingInfo = mesh.getBoundingInfo();
-      const center = boundingInfo.boundingBox.centerWorld;
-      const targetRadius = this._calculateFocusRadius(mesh);
-
-      this.cameraManager.animateCameraTo(center, targetRadius);
+  public focusOnSelected(): void {
+    if (this.selectionManager.selectedTarget) {
+      const focusTarget = this._getFocusTargetCenterAndRadius();
+      this.cameraManager.animateCameraTo(focusTarget.center, focusTarget.radius);
     }
   }
 
-  public focusOnGroup(nodeName: string): void {
-    const node =
-      this.scene.getTransformNodeByName(nodeName) ??
-      this.scene.getMeshByName(nodeName);
-    if (!node) {
-      throw new Error(`Node "${nodeName}" was not found in the scene.`);
+  private _getFocusTargetCenterAndRadius(): { center: Vector3; radius: number } {
+    const meshes = this.selectionManager.selectedMeshes;
+    if (meshes.length > 0) {
+      let min = new Vector3(Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE);
+      let max = new Vector3(-Number.MAX_VALUE, -Number.MAX_VALUE, -Number.MAX_VALUE);
+
+      meshes.forEach((m) => {
+        ensureWorldMatrixUpdated(m);
+        const bb = m.getBoundingInfo().boundingBox;
+        min = Vector3.Minimize(min, bb.minimumWorld);
+        max = Vector3.Maximize(max, bb.maximumWorld);
+      });
+
+      const center = Vector3.Center(min, max);
+      const margin = meshes.length === 1 ? 1.6 : 1.25;
+      const radius = this.cameraManager.computeFitRadius(center, min, max, margin);
+      return { center, radius };
     }
 
-    const meshesToFocus: AbstractMesh[] = [];
-    const selfMesh = node as AbstractMesh;
-    if (typeof selfMesh.getTotalVertices === "function" && selfMesh.getTotalVertices() > 0) {
-      meshesToFocus.push(selfMesh);
-    }
-    node.getChildMeshes(false).forEach((m) => {
-      if (m.getTotalVertices() > 0) {
-        meshesToFocus.push(m);
-      }
-    });
-
-    if (meshesToFocus.length === 0) {
-      throw new Error(`Node "${nodeName}" does not contain any meshes to focus on.`);
-    }
-
-    let min = new Vector3(Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE);
-    let max = new Vector3(-Number.MAX_VALUE, -Number.MAX_VALUE, -Number.MAX_VALUE);
-
-    meshesToFocus.forEach((m) => {
-      ensureWorldMatrixUpdated(m);
-      const bb = m.getBoundingInfo().boundingBox;
-      min = Vector3.Minimize(min, bb.minimumWorld);
-      max = Vector3.Maximize(max, bb.maximumWorld);
-    });
-
-    const center = Vector3.Center(min, max);
-    const targetRadius = this.cameraManager.computeFitRadius(center, min, max, 0.9, meshesToFocus);
-
-    this.cameraManager.animateCameraTo(center, targetRadius);
+    return {
+      center: this.modelLoader.getModelCenterWorld(this._cameraTargetNode.position),
+      radius: this.getBaseRadius()
+    };
   }
 
-  public setSelectedMeshVisible(visible: boolean): void {
-    this.selectionManager.setSelectedMeshVisible(visible);
+  public setSelectedVisible(visible: boolean): void {
+    this.selectionManager.setSelectedVisible(visible);
   }
 
   public showAllMeshes(): void {
     this.modelLoader.showAllMeshes();
   }
 
-  public isSelectedMeshVisible(): boolean {
-    return this.selectionManager.isSelectedMeshVisible();
+  public isSelectedVisible(): boolean {
+    return this.selectionManager.isSelectedVisible();
   }
 
-  public setSelectedMeshAlpha(alpha: number): void {
-    this.selectionManager.setSelectedMeshAlpha(alpha);
+  public setSelectedAlpha(alpha: number): void {
+    this.selectionManager.setSelectedAlpha(alpha);
   }
 
-  public getSelectedMeshAlpha(): number {
-    return this.selectionManager.getSelectedMeshAlpha();
+  public getSelectedAlpha(): number {
+    return this.selectionManager.getSelectedAlpha();
   }
 
-  public toggleSelectedMeshRotation(enabled: boolean): void {
-    this.selectionManager.toggleSelectedMeshRotation(enabled);
+  public toggleSelectedRotation(enabled: boolean): void {
+    this.selectionManager.toggleSelectedRotation(enabled);
   }
 
-  public isSelectedMeshRotating(): boolean {
-    return this.selectionManager.isSelectedMeshRotating();
+  public isSelectedRotating(): boolean {
+    return this.selectionManager.isSelectedRotating();
   }
 
-  public toggleDragSelectedMesh(enabled: boolean): void {
-    this.selectionManager.toggleDragSelectedMesh(enabled);
+  public toggleDragSelected(enabled: boolean): void {
+    this.selectionManager.toggleDragSelected(enabled);
   }
 
-  public resetSelectedMeshPosition(): void {
-    this.selectionManager.resetSelectedMeshPosition();
+  public resetSelectedPosition(): void {
+    this.selectionManager.resetSelectedPosition();
   }
 
+  // Animation Methods
   public getAnimationNames(): string[] {
     return this.animationManager.getAnimationNames();
   }
 
-  public playAnimation(name: string, loop: boolean = true): void {
+  public getAnimationRange(name: string): AnimationRange | null {
+    return this.animationManager.getAnimationRange(name);
+  }
+
+  public getCurrentAnimationFrame(name: string): number {
+    return this.animationManager.getCurrentFrame(name);
+  }
+
+  public goToAnimationFrame(name: string, frame: number): void {
+    this.animationManager.goToFrame(name, frame);
+  }
+
+  public stepAnimationFrame(name: string, delta: number): void {
+    this.animationManager.stepFrame(name, delta);
+  }
+
+  public setAnimationLoop(name: string, loop: boolean): void {
+    this.animationManager.setLoop(name, loop);
+  }
+
+  public isAnimationLooping(name: string): boolean {
+    return this.animationManager.isLooping(name);
+  }
+
+  public playAnimation(name: string, loop?: boolean): void {
     this.animationManager.playAnimation(name, loop);
   }
 
@@ -352,21 +405,48 @@ export class SceneController {
     this.animationManager.setAnimationSpeed(name, speed);
   }
 
-  public toggleInspector(): void {
-    if (this.scene.debugLayer.isVisible()) {
-      this.scene.debugLayer.hide();
+  public setShadingMode(mode: ShadingMode): void {
+    this.debugManager.setShadingMode(mode);
+  }
+
+  public setAxisGizmoVisible(visible: boolean): void {
+    const center = this.modelLoader.getModelCenterWorld(this._cameraTargetNode.position);
+    const radius = this.modelLoader.getModelFocusRadius();
+    this.debugManager.setAxisGizmoVisible(visible, center, radius * 0.4);
+  }
+
+  public setSceneBoundingBoxVisible(visible: boolean): void {
+    const bbox = this.modelLoader.calculateModelBounds();
+    if (bbox) {
+      this.debugManager.setSceneBoundingBoxVisible(visible, bbox.min, bbox.max);
     } else {
-      this.scene.debugLayer.show({
-        embedMode: true,
-        overlay: true
-      });
+      this.debugManager.setSceneBoundingBoxVisible(visible);
     }
   }
 
+  public getPerformanceStats(): PerformanceStats {
+    return this.debugManager.getPerformanceStats();
+  }
+
   public clearCurrentModel(): void {
+    this.debugManager.clear();
+    this.meshRoundingManager.clear();
     this.modelLoader.clearCurrentModel();
     this.selectionManager.clearSelection();
+    this.selectionManager.restoreAllIsolatedMaterials();
     this.animationManager.clearAnimations();
+  }
+
+  public resetEntireModel(): void {
+    this.debugManager.setShadingMode('pbr');
+    this.meshRoundingManager.resetRounding();
+    this.selectionManager.resetAllTransformsAndMaterials();
+    const names = this.getAnimationNames();
+    if (names.length > 0) {
+      this.animationManager.goToFrame(names[0], 0);
+      this.animationManager.stopAnimation(names[0]);
+    }
+    this.resetCamera();
   }
 
   public async loadModelFromFile(file: File): Promise<string> {
@@ -381,24 +461,40 @@ export class SceneController {
 
     this.animationManager.setAnimationGroups(animationGroups);
 
+    if (this.modelLoader.currentModelRoot) {
+      const childMeshes = this.modelLoader.currentModelRoot.getChildMeshes();
+      this.selectionManager.cacheModelInitialTransforms(this.modelLoader.currentModelRoot);
+      this.meshRoundingManager.cacheModelGeometry(childMeshes);
+      childMeshes.forEach((m) => this.debugManager.cacheMeshMaterial(m));
+    }
+
     const modelCenter = this.modelLoader.getModelCenterWorld(this._cameraTargetNode.position);
-    const modelRadius = this.modelLoader.getModelFocusRadius((c, min, max, m, meshes) =>
-      this.cameraManager.computeFitRadius(c, min, max, m, meshes)
+    const modelRadius = this.modelLoader.getModelFocusRadius((c, min, max, m) =>
+      this.cameraManager.computeFitRadius(c, min, max, m)
     );
 
     this.cameraManager.animateCameraTo(modelCenter, modelRadius);
     return summary;
   }
 
-  public stopCameraTransition(): void {
-    this.cameraManager.stopCameraTransition();
+  public applyRounding(
+    scope: 'selected' | 'all',
+    mode: RoundingAlgorithmMode,
+    params: Partial<RoundingParams>
+  ): number {
+    const targets = scope === 'selected'
+      ? this.selectionManager.selectedMeshes
+      : (this.modelLoader.currentModelRoot ? this.modelLoader.currentModelRoot.getChildMeshes() : []);
+    return this.meshRoundingManager.applyRounding(targets, mode, params);
   }
 
-  private _calculateFocusRadius(mesh: AbstractMesh): number {
-    ensureWorldMatrixUpdated(mesh);
-    const bb = mesh.getBoundingInfo().boundingBox;
-    const center = bb.centerWorld;
-    return this.cameraManager.computeFitRadius(center, bb.minimumWorld, bb.maximumWorld, 1.8, [mesh]);
+  public resetRounding(scope: 'selected' | 'all' = 'all'): void {
+    const targets = scope === 'selected' ? this.selectionManager.selectedMeshes : undefined;
+    this.meshRoundingManager.resetRounding(targets);
+  }
+
+  public stopCameraTransition(): void {
+    this.cameraManager.stopCameraTransition();
   }
 
   private _onResize = () => {
@@ -407,8 +503,11 @@ export class SceneController {
 
   public dispose(): void {
     window.removeEventListener("resize", this._onResize);
+    InspectorI18n.dispose();
+    this.meshRoundingManager.clear();
     this.animationManager.clearAnimations();
     this.selectionManager.clearSelection();
+    this.selectionManager.restoreAllIsolatedMaterials();
     this.modelLoader.clearCurrentModel();
     this.engine.dispose();
   }
@@ -417,3 +516,4 @@ export class SceneController {
     return this.modelLoader.getModelHierarchy();
   }
 }
+

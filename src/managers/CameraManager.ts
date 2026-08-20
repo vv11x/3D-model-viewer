@@ -4,15 +4,11 @@ import {
   Vector3,
   TransformNode,
   AbstractMesh,
-  Animation,
-  CubicEase,
-  EasingFunction,
-  VertexBuffer,
   type Nullable,
   type Node
 } from "@babylonjs/core";
 
-/** Recusively ensures parent-to-child world matrices are computed up to date. */
+/** Recursively ensures parent-to-child world matrices are computed up to date. */
 export function ensureWorldMatrixUpdated(node: TransformNode | AbstractMesh): void {
   const ancestors: TransformNode[] = [];
   let curr: Nullable<Node> = node;
@@ -41,9 +37,15 @@ export class CameraManager {
   private _defaultFov: number = 0.8;
   private _lastNotifiedRadius: number = -1;
 
-  private _isTransitioningTarget: boolean = false;
+  // Smooth Transition State
+  private _isTransitioning: boolean = false;
+  private _transitionStartTime: number = 0;
+  private _transitionDuration: number = 650;
+  private _startTarget: Vector3 = Vector3.Zero();
+  private _endTarget: Vector3 = Vector3.Zero();
+  private _startRadius: number = 10;
+  private _endRadius: number = 10;
   private _lastTargetPosition: Vector3 | null = null;
-  private _tmpFitVector: Vector3 = Vector3.Zero();
 
   private _panningSpeedMultiplier: number = 1.0;
 
@@ -70,7 +72,7 @@ export class CameraManager {
     this.camera.lowerRadiusLimit = CameraManager.MIN_ZOOM_DISTANCE;
     this.camera.upperRadiusLimit = 100;
     this.camera.wheelPrecision = 50;
-    this.camera.wheelDeltaPercentage = 0.04; // 滚轮缩放比例提升至 4% (更加快速灵敏)
+    this.camera.wheelDeltaPercentage = 0.04;
     this.camera.minZ = 0.01;
 
     this.camera.setTarget(this._cameraTargetNode.position);
@@ -81,7 +83,7 @@ export class CameraManager {
 
   private _registerRenderObserver(): void {
     this._scene.onBeforeRenderObservable.add(() => {
-      // 1. Notify radius changes and dynamically update minZ clipping plane & adaptive panning sensibility
+      // 1. Dynamic minZ clipping plane & adaptive panning sensibility
       const radius = this.camera.radius;
       if (radius !== this._lastNotifiedRadius) {
         this._lastNotifiedRadius = radius;
@@ -92,23 +94,43 @@ export class CameraManager {
         }
       }
 
-      // 2. Continuous target lock when not in active camera target transition
-      if (!this._isTransitioningTarget && this.isLockedToTarget) {
-        let currentPos: Vector3 | null = null;
-        if (this._cameraTargetNode) {
-          currentPos = this._cameraTargetNode.position;
-        }
+      // 2. Smooth Transition Step
+      if (this._isTransitioning) {
+        const now = performance.now();
+        const elapsed = now - this._transitionStartTime;
+        const progress = Math.min(Math.max(elapsed / this._transitionDuration, 0), 1);
 
-        if (currentPos) {
-          if (this._lastTargetPosition) {
-            const delta = currentPos.subtract(this._lastTargetPosition);
-            if (delta.lengthSquared() > 0.00001) {
-              this.camera.target.addInPlace(delta);
-            }
-            this._lastTargetPosition.copyFrom(currentPos);
-          } else {
-            this._lastTargetPosition = currentPos.clone();
+        // Cubic ease in-out
+        const t = progress < 0.5
+          ? 4 * progress * progress * progress
+          : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+        const currentTarget = Vector3.Lerp(this._startTarget, this._endTarget, t);
+        const currentRadius = this._startRadius + (this._endRadius - this._startRadius) * t;
+
+        this.camera.setTarget(currentTarget);
+        this.camera.radius = currentRadius;
+
+        if (progress >= 1) {
+          this._isTransitioning = false;
+          this.camera.setTarget(this._endTarget);
+          this.camera.radius = this._endRadius;
+          if (this.isLockedToTarget) {
+            this._lastTargetPosition = this._endTarget.clone();
           }
+        }
+      } else if (this.isLockedToTarget) {
+        // Continuous target lock when not in active camera transition
+        const currentPos = this._cameraTargetNode.position;
+        if (this._lastTargetPosition) {
+          const delta = currentPos.subtract(this._lastTargetPosition);
+          if (delta.lengthSquared() > 0.00001) {
+            const newTarget = this.camera.target.add(delta);
+            this.camera.setTarget(newTarget);
+          }
+          this._lastTargetPosition.copyFrom(currentPos);
+        } else {
+          this._lastTargetPosition = currentPos.clone();
         }
       }
     });
@@ -126,60 +148,21 @@ export class CameraManager {
     });
   }
 
-  public animateCameraTo(target: Vector3, radius: number): void {
+  public animateCameraTo(target: Vector3, radius: number, durationMs: number = 650): void {
     if (!this._scene || !this.camera) return;
 
-    this.stopCameraTransition();
-
-    const frameRate = 60;
-    const duration = 0.8;
-    const ease = new CubicEase();
-    ease.setEasingMode(EasingFunction.EASINGMODE_EASEINOUT);
-
-    this._isTransitioningTarget = true;
-    this._lastTargetPosition = null;
-
-    // Update target node position
+    this._isTransitioning = true;
+    this._transitionStartTime = performance.now();
+    this._transitionDuration = Math.max(durationMs, 100);
+    this._startTarget.copyFrom(this.camera.target);
+    this._endTarget.copyFrom(target);
+    this._startRadius = this.camera.radius;
+    this._endRadius = Math.max(radius, CameraManager.MIN_ZOOM_DISTANCE);
     this._cameraTargetNode.position.copyFrom(target);
-
-    // Synchronized smooth animation for BOTH radius AND camera.target
-    Animation.CreateAndStartAnimation(
-      "cameraFocusRadius",
-      this.camera,
-      "radius",
-      frameRate,
-      frameRate * duration,
-      this.camera.radius,
-      radius,
-      Animation.ANIMATIONLOOPMODE_CONSTANT,
-      ease
-    );
-
-    Animation.CreateAndStartAnimation(
-      "cameraFocusTarget",
-      this.camera,
-      "target",
-      frameRate,
-      frameRate * duration,
-      this.camera.target.clone(),
-      target.clone(),
-      Animation.ANIMATIONLOOPMODE_CONSTANT,
-      ease,
-      () => {
-        this._isTransitioningTarget = false;
-        if (this.isLockedToTarget) {
-          this._lastTargetPosition = target.clone();
-        }
-      }
-    );
   }
 
   public stopCameraTransition(): void {
-    this._isTransitioningTarget = false;
-    if (this._scene && this.camera) {
-      this._scene.stopAnimation(this.camera, "target");
-      this._scene.stopAnimation(this.camera, "radius");
-    }
+    this._isTransitioning = false;
     if (this.isLockedToTarget) {
       this._lastTargetPosition = this._cameraTargetNode.position.clone();
     } else {
@@ -225,12 +208,10 @@ export class CameraManager {
   }
 
   private _updatePanningSensibility(): void {
-    const radius = Math.max(this.camera.radius, CameraManager.MIN_ZOOM_DISTANCE);
-    const baseSensibility = 5000 / this._panningSpeedMultiplier;
-    // 自适应右键平移灵敏度：结合镜头当前距离 (radius) 平滑缩放。
-    // 特写放大（高倍率/近距离）时自动提高灵敏度数值，使右键平移细腻顺畅；拉远时流畅快速。
-    const adaptiveFactor = Math.pow(radius / 10.0, 0.25);
-    this.camera.panningSensibility = Math.max(10, baseSensibility / adaptiveFactor);
+    const radius = Math.max(this.camera.radius, 0.001);
+    const baseSensibility = 1200 / Math.max(this._panningSpeedMultiplier, 0.01);
+    const adaptiveFactor = Math.pow(radius / 5.0, 0.35);
+    this.camera.panningSensibility = Math.min(Math.max(baseSensibility / adaptiveFactor, 20), 20000);
   }
 
   public toggleAutoRotate(enabled: boolean): void {
@@ -242,63 +223,20 @@ export class CameraManager {
   }
 
   public computeFitRadius(
-    center: Vector3,
+    _center: Vector3,
     min: Vector3,
     max: Vector3,
-    margin: number,
-    meshes?: AbstractMesh[]
+    margin: number = 1.25
   ): number {
-    const view = this.camera.getViewMatrix();
-    const cView = Vector3.TransformCoordinates(center, view);
-    const tanHalf = Math.tan(this.camera.fov / 2);
-    const aspect = this._scene.getEngine().getAspectRatio(this.camera) || 1;
+    const size = max.subtract(min);
+    const maxDimension = Math.max(size.x, size.y, size.z, 0.05);
+    const fov = this.camera.fov;
+    const aspect = this._scene.getEngine().getAspectRatio(this.camera) || 1.0;
 
-    let radius = 0;
-    let projectedVertices = 0;
+    const fitRadiusV = (maxDimension * 0.5) / Math.tan(fov * 0.5);
+    const fitRadiusH = (maxDimension * 0.5) / (Math.tan(fov * 0.5) * aspect);
+    const fitRadius = Math.max(fitRadiusV, fitRadiusH) * margin;
 
-    if (meshes && meshes.length > 0) {
-      for (const mesh of meshes) {
-        ensureWorldMatrixUpdated(mesh);
-        const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
-        if (!positions || positions.length < 3) continue;
-        const worldView = mesh.getWorldMatrix().multiply(view);
-        const vertexCount = positions.length / 3;
-        const step = Math.max(1, Math.floor(vertexCount / 50000));
-        for (let i = 0; i < positions.length; i += 3 * step) {
-          const v = Vector3.TransformCoordinatesFromFloatsToRef(
-            positions[i],
-            positions[i + 1],
-            positions[i + 2],
-            worldView,
-            this._tmpFitVector
-          );
-          const relZ = cView.z - v.z;
-          const offX = Math.abs(v.x - cView.x);
-          const offY = Math.abs(v.y - cView.y);
-          const rHeight = offY / tanHalf + relZ;
-          const rWidth = offX / (tanHalf * aspect) + relZ;
-          if (rHeight > radius) radius = rHeight;
-          if (rWidth > radius) radius = rWidth;
-          projectedVertices++;
-        }
-      }
-    }
-
-    if (projectedVertices === 0) {
-      for (const x of [min.x, max.x]) {
-        for (const y of [min.y, max.y]) {
-          for (const z of [min.z, max.z]) {
-            const v = Vector3.TransformCoordinates(new Vector3(x, y, z), view);
-            const relZ = cView.z - v.z;
-            const offX = Math.abs(v.x - cView.x);
-            const offY = Math.abs(v.y - cView.y);
-            const rHeight = offY / tanHalf + relZ;
-            const rWidth = offX / (tanHalf * aspect) + relZ;
-            radius = Math.max(radius, rHeight, rWidth);
-          }
-        }
-      }
-    }
-    return Math.max(radius * margin, CameraManager.MIN_ZOOM_DISTANCE);
+    return Math.min(Math.max(fitRadius, CameraManager.MIN_ZOOM_DISTANCE), this.camera.upperRadiusLimit ?? 100);
   }
 }

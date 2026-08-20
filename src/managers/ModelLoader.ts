@@ -3,8 +3,7 @@ import {
   TransformNode,
   Vector3,
   SceneLoader,
-  ShadowGenerator,
-  AbstractMesh
+  ShadowGenerator
 } from "@babylonjs/core";
 import { ensureWorldMatrixUpdated } from "./CameraManager";
 
@@ -49,19 +48,35 @@ export class ModelLoader {
     const modelRoot = new TransformNode("model_root", this._scene);
     const result = await SceneLoader.ImportMeshAsync("", "", file, this._scene);
 
+    // Attach root meshes and transform nodes to modelRoot
     result.meshes.forEach((mesh) => {
       if (!mesh.parent) {
         mesh.setParent(modelRoot);
       }
     });
+    result.transformNodes.forEach((tn) => {
+      if (!tn.parent) {
+        tn.setParent(modelRoot);
+      }
+    });
 
+    // Filter out dummy/helper points and compute solid bounding box
     let min = new Vector3(Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE);
     let max = new Vector3(-Number.MAX_VALUE, -Number.MAX_VALUE, -Number.MAX_VALUE);
     let hasValidMesh = false;
 
     result.meshes.forEach((mesh) => {
       if (mesh === modelRoot || mesh.name === "__root__") return;
-      if (mesh.getTotalVertices() > 0) {
+      const vertCount = mesh.getTotalVertices();
+      
+      // Filter out degenerate helper points (<3 vertices)
+      if (vertCount < 3) {
+        mesh.isVisible = false;
+        mesh.setEnabled(false);
+        return;
+      }
+
+      if (vertCount > 0) {
         ensureWorldMatrixUpdated(mesh);
         const boundingInfo = mesh.getBoundingInfo();
         min = Vector3.Minimize(min, boundingInfo.boundingBox.minimumWorld);
@@ -90,7 +105,7 @@ export class ModelLoader {
     }
 
     result.meshes.forEach((mesh) => {
-      if (mesh.getTotalVertices() > 0) {
+      if (mesh.isEnabled() && mesh.getTotalVertices() >= 3) {
         if (shadowGenerator) {
           shadowGenerator.addShadowCaster(mesh);
         }
@@ -98,8 +113,9 @@ export class ModelLoader {
       }
     });
 
-    const meshCount = result.meshes.length;
-    const vertices = result.meshes.reduce((acc, m) => acc + m.getTotalVertices(), 0);
+    const validMeshes = result.meshes.filter((m) => m.isEnabled() && m.getTotalVertices() >= 3);
+    const meshCount = validMeshes.length;
+    const vertices = validMeshes.reduce((acc, m) => acc + m.getTotalVertices(), 0);
     const summary = `Model loaded successfully: ${meshCount} meshes, ${vertices.toLocaleString()} vertices.`;
 
     return {
@@ -120,7 +136,7 @@ export class ModelLoader {
     let hasValidMesh = false;
 
     this._currentModelRoot.getChildMeshes().forEach((mesh) => {
-      if (mesh.getTotalVertices() > 0) {
+      if (mesh.isEnabled() && mesh.getTotalVertices() >= 3) {
         ensureWorldMatrixUpdated(mesh);
         const boundingInfo = mesh.getBoundingInfo();
         min = Vector3.Minimize(min, boundingInfo.boundingBox.minimumWorld);
@@ -136,7 +152,7 @@ export class ModelLoader {
     return this._currentModelRoot.absolutePosition;
   }
 
-  public getModelFocusRadius(computeFitRadiusFn: (center: Vector3, min: Vector3, max: Vector3, margin: number, meshes: AbstractMesh[]) => number): number {
+  public getModelFocusRadius(computeFitRadiusFn: (center: Vector3, min: Vector3, max: Vector3, margin: number) => number): number {
     if (this._cachedModelFocusRadius !== null) {
       return this._cachedModelFocusRadius;
     }
@@ -145,22 +161,20 @@ export class ModelLoader {
     let min = new Vector3(Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE);
     let max = new Vector3(-Number.MAX_VALUE, -Number.MAX_VALUE, -Number.MAX_VALUE);
     let hasValidMesh = false;
-    const validMeshes: AbstractMesh[] = [];
 
     this._currentModelRoot.getChildMeshes().forEach((mesh) => {
-      if (mesh.getTotalVertices() > 0) {
+      if (mesh.isEnabled() && mesh.getTotalVertices() >= 3) {
         ensureWorldMatrixUpdated(mesh);
         const boundingInfo = mesh.getBoundingInfo();
         min = Vector3.Minimize(min, boundingInfo.boundingBox.minimumWorld);
         max = Vector3.Maximize(max, boundingInfo.boundingBox.maximumWorld);
-        validMeshes.push(mesh);
         hasValidMesh = true;
       }
     });
 
     if (hasValidMesh) {
       const center = Vector3.Center(min, max);
-      this._cachedModelFocusRadius = computeFitRadiusFn(center, min, max, 1.15, validMeshes);
+      this._cachedModelFocusRadius = computeFitRadiusFn(center, min, max, 1.25);
       return this._cachedModelFocusRadius;
     }
     return 10.0;
@@ -169,7 +183,10 @@ export class ModelLoader {
   public showAllMeshes(): void {
     if (this._currentModelRoot) {
       this._currentModelRoot.getChildMeshes().forEach((m) => {
-        m.setEnabled(true);
+        if (m.getTotalVertices() >= 3) {
+          m.setEnabled(true);
+          m.isVisible = true;
+        }
       });
     }
   }
@@ -215,3 +232,4 @@ export class ModelLoader {
     };
   }
 }
+
