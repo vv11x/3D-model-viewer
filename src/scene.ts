@@ -332,6 +332,14 @@ export class SceneController {
     return this.selectionManager.isSelectedVisible();
   }
 
+  public isTargetVisible(name: string): boolean {
+    return this.selectionManager.isTargetVisible(name);
+  }
+
+  public setTargetVisible(name: string, visible: boolean): void {
+    this.selectionManager.setTargetVisible(name, visible);
+  }
+
   public setSelectedAlpha(alpha: number): void {
     this.selectionManager.setSelectedAlpha(alpha);
   }

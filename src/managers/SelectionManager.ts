@@ -213,6 +213,28 @@ export class SelectionManager {
     return this._selectedTarget ? this._selectedTarget.isEnabled() : true;
   }
 
+  public isTargetVisible(name: string): boolean {
+    const node = this._scene.getMeshByName(name) ?? this._scene.getTransformNodeByName(name);
+    if (!node) return true;
+    if (!node.isEnabled()) return false;
+    const meshes = this.getMeshesInTarget(node);
+    if (meshes.length > 0) {
+      return meshes.some((m) => m.isVisible && m.isEnabled());
+    }
+    return node.isEnabled();
+  }
+
+  public setTargetVisible(name: string, visible: boolean): void {
+    const node = this._scene.getMeshByName(name) ?? this._scene.getTransformNodeByName(name);
+    if (!node) return;
+    node.setEnabled(visible);
+    const meshes = this.getMeshesInTarget(node);
+    meshes.forEach((m) => {
+      m.setEnabled(visible);
+      m.isVisible = visible;
+    });
+  }
+
   // ==================== Material Isolation for Opacity ====================
   public setSelectedAlpha(alpha: number): void {
     if (!this._selectedTarget) {

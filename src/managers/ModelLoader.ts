@@ -182,6 +182,10 @@ export class ModelLoader {
 
   public showAllMeshes(): void {
     if (this._currentModelRoot) {
+      this._currentModelRoot.setEnabled(true);
+      this._currentModelRoot.getChildTransformNodes(false).forEach((t) => {
+        t.setEnabled(true);
+      });
       this._currentModelRoot.getChildMeshes().forEach((m) => {
         if (m.getTotalVertices() >= 3) {
           m.setEnabled(true);
