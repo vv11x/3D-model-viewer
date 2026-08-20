@@ -1,12 +1,12 @@
 import {
   AbstractMesh,
-  Axis,
   Color3,
   Color4,
+  Effect,
   Mesh,
   MeshBuilder,
-  PBRMaterial,
   Scene,
+  ShaderMaterial,
   StandardMaterial,
   TransformNode,
   Vector3
@@ -34,7 +34,7 @@ export class DebugManager {
   // Cached materials for restoring PBR rendering
   private _originalMeshMaterials: Map<AbstractMesh, any> = new Map();
   private _clayMaterial: StandardMaterial | null = null;
-  private _normalsMaterial: StandardMaterial | null = null;
+  private _normalsMaterial: ShaderMaterial | null = null;
 
   constructor(scene: Scene) {
     this._scene = scene;
@@ -48,9 +48,33 @@ export class DebugManager {
     this._clayMaterial.specularColor = new Color3(0.1, 0.1, 0.1);
     this._clayMaterial.ambientColor = new Color3(0.5, 0.5, 0.5);
 
-    // 2. Normals Visualization Material
-    this._normalsMaterial = new StandardMaterial("debug_normals_mat", this._scene);
-    this._normalsMaterial.diffuseColor = new Color3(0.9, 0.9, 0.9);
+    // 2. Normals Visualization Material (world-space normal -> RGB)
+    Effect.ShadersStore["normalVisVertexShader"] = `
+      precision highp float;
+      attribute vec3 position;
+      attribute vec3 normal;
+      uniform mat4 world;
+      uniform mat4 worldViewProjection;
+      varying vec3 vNormalW;
+      void main(void) {
+        vNormalW = normalize((world * vec4(normal, 0.0)).xyz);
+        gl_Position = worldViewProjection * vec4(position, 1.0);
+      }
+    `;
+    Effect.ShadersStore["normalVisFragmentShader"] = `
+      precision highp float;
+      varying vec3 vNormalW;
+      void main(void) {
+        vec3 n = normalize(vNormalW);
+        gl_FragColor = vec4(n * 0.5 + 0.5, 1.0);
+      }
+    `;
+    this._normalsMaterial = new ShaderMaterial(
+      "debug_normals_mat",
+      this._scene,
+      { vertex: "normalVis", fragment: "normalVis" },
+      { attributes: ["position", "normal"], uniforms: ["world", "worldViewProjection"] }
+    );
   }
 
   /**
@@ -60,7 +84,23 @@ export class DebugManager {
     if (this._activeShadingMode === mode) return;
     this._activeShadingMode = mode;
 
-    const meshes = this._scene.meshes.filter((m) => !(m.name.startsWith("debug_") || m.name.startsWith("grid_") || m.name === "ground"));
+    const meshes = this._scene.meshes.filter((m) => {
+      const name = m.name;
+      if (
+        name.startsWith("debug_") ||
+        name.startsWith("axis_") ||
+        name.startsWith("grid_") ||
+        name === "gridLines" ||
+        name === "shadowGround" ||
+        name === "ground" ||
+        name.endsWith("_rim_shell") ||
+        name.endsWith("_xray_shell") ||
+        name.endsWith("_stencil_shell")
+      ) {
+        return false;
+      }
+      return m.getTotalVertices() > 0;
+    });
 
     if (mode === 'pbr') {
       // Restore original materials & wireframe off
@@ -208,12 +248,13 @@ export class DebugManager {
   public getPerformanceStats(): PerformanceStats {
     const engine = this._scene.getEngine();
     const fps = Math.round(engine.getFps());
-    const drawCalls = engine.drawCalls || 0;
+    const drawCalls = (engine as any)._drawCalls?.current ?? (this._scene.getActiveMeshes ? this._scene.getActiveMeshes().length : 0);
     const activeIndices = this._scene.getActiveIndices();
     const activeMeshes = this._scene.getActiveMeshes ? this._scene.getActiveMeshes().length : 0;
     const totalVertices = this._scene.getTotalVertices();
     const totalFaces = Math.round(activeIndices / 3);
-    const frameTimeMs = parseFloat(engine.deltaTime ? engine.deltaTime.toFixed(1) : '0.0');
+    const deltaTime = typeof engine.getDeltaTime === 'function' ? engine.getDeltaTime() : ((engine as any).deltaTime || 0);
+    const frameTimeMs = parseFloat(deltaTime.toFixed(1));
 
     return {
       fps,
@@ -242,5 +283,17 @@ export class DebugManager {
     }
     this._originalMeshMaterials.clear();
     this._activeShadingMode = 'pbr';
+  }
+
+  public dispose(): void {
+    this.clear();
+    if (this._clayMaterial) {
+      this._clayMaterial.dispose();
+      this._clayMaterial = null;
+    }
+    if (this._normalsMaterial) {
+      this._normalsMaterial.dispose();
+      this._normalsMaterial = null;
+    }
   }
 }

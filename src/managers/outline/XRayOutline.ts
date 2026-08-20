@@ -1,7 +1,9 @@
 import {
   AbstractMesh,
   Color3,
+  Engine,
   Mesh,
+  Observer,
   Scene,
   StandardMaterial
 } from "@babylonjs/core";
@@ -20,12 +22,31 @@ export class XRayOutline implements IOutlineRenderer {
   private _scene: Scene;
   private _activeMeshes: AbstractMesh[] = [];
   private _xrayClones: Mesh[] = [];
+  private _cloneMap: Map<Mesh, Mesh> = new Map();
   private _xrayMaterial: StandardMaterial | null = null;
+  private _syncObserver: Observer<Scene> | null = null;
   private _currentParams: OutlineParams = { color: "#00f2fe", width: 0.03, xrayAlpha: 0.6 };
+  private readonly _shellScale = 1.002;
 
   constructor(scene: Scene) {
     this._scene = scene;
   }
+
+  /** Keeps the X-Ray shell glued to the original mesh (drag / rotate / animate). */
+  private _syncShells = (): void => {
+    this._cloneMap.forEach((orig, clone) => {
+      if (orig.isDisposed() || clone.isDisposed()) return;
+      if (orig.parent !== clone.parent) clone.parent = orig.parent;
+      clone.position.copyFrom(orig.position);
+      if (orig.rotationQuaternion) {
+        clone.rotationQuaternion = orig.rotationQuaternion.clone();
+      } else {
+        clone.rotation.copyFrom(orig.rotation);
+        clone.rotationQuaternion = null;
+      }
+      clone.scaling.copyFrom(orig.scaling).scaleInPlace(this._shellScale);
+    });
+  };
 
   public apply(meshes: AbstractMesh[], params: OutlineParams): void {
     this.clear();
@@ -44,6 +65,7 @@ export class XRayOutline implements IOutlineRenderer {
     this._xrayMaterial.alpha = alpha;
     this._xrayMaterial.alphaMode = 2; // Additive blending
     this._xrayMaterial.disableDepthWrite = true;
+    this._xrayMaterial.depthFunction = Engine.ALWAYS;
     this._xrayMaterial.backFaceCulling = false;
     this._xrayMaterial.disableLighting = true;
 
@@ -56,14 +78,24 @@ export class XRayOutline implements IOutlineRenderer {
       if (mesh instanceof Mesh) {
         const clone = mesh.clone(`${mesh.name}_xray_shell`, null, true);
         if (clone) {
+          clone.parent = mesh.parent;
+          clone.position = mesh.position.clone();
+          if (mesh.rotationQuaternion) {
+            clone.rotationQuaternion = mesh.rotationQuaternion.clone();
+          } else {
+            clone.rotation = mesh.rotation.clone();
+          }
+          clone.scaling = mesh.scaling.scale(this._shellScale);
           clone.isPickable = false;
           clone.material = this._xrayMaterial;
           clone.renderingGroupId = 2; // Render on top / through
-          clone.scaling.scaleInPlace(1.002);
           this._xrayClones.push(clone);
+          this._cloneMap.set(clone, mesh);
         }
       }
     });
+
+    this._syncObserver = this._scene.onBeforeRenderObservable.add(this._syncShells);
   }
 
   public update(params: OutlineParams): void {
@@ -83,14 +115,21 @@ export class XRayOutline implements IOutlineRenderer {
   }
 
   public clear(): void {
+    if (this._syncObserver) {
+      this._scene.onBeforeRenderObservable.remove(this._syncObserver);
+      this._syncObserver = null;
+    }
     this._activeMeshes.forEach((mesh) => {
       mesh.renderOutline = false;
     });
 
     this._xrayClones.forEach((clone) => {
-      clone.dispose(false, true);
+      if (!clone.isDisposed()) {
+        clone.dispose(false, false);
+      }
     });
     this._xrayClones = [];
+    this._cloneMap.clear();
 
     if (this._xrayMaterial) {
       this._xrayMaterial.dispose();

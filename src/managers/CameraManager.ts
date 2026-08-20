@@ -178,7 +178,14 @@ export class CameraManager {
     }
   }
 
+  public adaptCameraLimits(baseRadius: number): void {
+    const upperLimit = Math.max(500, baseRadius * 25);
+    this.camera.upperRadiusLimit = upperLimit;
+    this.camera.maxZ = Math.max(10000, baseRadius * 100);
+  }
+
   public resetCamera(defaultRadius: number = 10, targetCenter: Vector3 = new Vector3(0, 1.5, 0)): void {
+    this.adaptCameraLimits(defaultRadius);
     this.stopCameraTransition();
     this.camera.alpha = -Math.PI / 4;
     this.camera.beta = Math.PI / 3;

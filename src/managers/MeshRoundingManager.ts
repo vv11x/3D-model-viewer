@@ -119,11 +119,16 @@ export class MeshRoundingManager {
    * Algorithm 1: Normal Angle Smooth Bevel
    * Combines normals for co-located vertices whose face angle difference <= threshold.
    */
-  private _applyNormalBevel(mesh: Mesh, backup: GeometryBackup, angleThresholdDeg: number): void {
+  private _applyNormalBevel(
+    mesh: Mesh,
+    backup: GeometryBackup,
+    angleThresholdDeg: number,
+    overridePositions?: Float32Array
+  ): void {
     const thresholdRad = (angleThresholdDeg * Math.PI) / 180;
     const cosThreshold = Math.cos(thresholdRad);
 
-    const positions = backup.positions;
+    const positions = overridePositions || backup.positions;
     const indices = backup.indices;
     const vertCount = positions.length / 3;
     const triCount = indices.length / 3;
@@ -183,7 +188,7 @@ export class MeshRoundingManager {
       const key = spatialKey(positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2]);
       const coLocated = spatialMap.get(key) || [v];
 
-      let avgNormal = Vector3.Zero();
+      const avgNormal = Vector3.Zero();
       let count = 0;
 
       // Check all neighboring faces sharing this physical position
@@ -210,9 +215,10 @@ export class MeshRoundingManager {
       }
     }
 
-    // Restore original positions & set new normals
-    mesh.setVerticesData(VertexBuffer.PositionKind, backup.positions, true);
+    // Set positions & set new normals
+    mesh.setVerticesData(VertexBuffer.PositionKind, positions, true);
     mesh.setVerticesData(VertexBuffer.NormalKind, newNormals, true);
+    mesh.refreshBoundingInfo();
   }
 
   /**
@@ -337,9 +343,14 @@ export class MeshRoundingManager {
     backup: GeometryBackup,
     strength: number
   ): void {
-    // 2-pass Laplacian with adaptive normal curvature blending
+    // 1. 2-pass Laplacian geometric relaxation
     this._applyLaplacianRounding(mesh, backup, strength * 0.7, 3);
-    this._applyNormalBevel(mesh, backup, 50);
+
+    // 2. Extract relaxed positions and perform normal beveling without wiping positions
+    const relaxedPositions = mesh.getVerticesData(VertexBuffer.PositionKind);
+    if (relaxedPositions) {
+      this._applyNormalBevel(mesh, backup, 50, new Float32Array(relaxedPositions));
+    }
   }
 
   public clear(): void {

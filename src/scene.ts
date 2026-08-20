@@ -11,8 +11,7 @@ import {
   Color3,
   TransformNode,
   AbstractMesh,
-  LinesMesh,
-  GlowLayer
+  LinesMesh
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import "@babylonjs/core/Debug/debugLayer";
@@ -24,6 +23,7 @@ import { SelectionManager, type SelectionInfo, type OutlineAlgorithmType, type O
 import { ModelLoader, type TreeNode } from "./managers/ModelLoader";
 import { MeshRoundingManager, type RoundingAlgorithmMode, type RoundingParams } from "./managers/MeshRoundingManager";
 import { DebugManager, type ShadingMode, type PerformanceStats } from "./managers/DebugManager";
+import { InspectorI18n } from "./utils/InspectorI18n";
 
 export type { TreeNode, SelectionInfo, AnimationRange, OutlineAlgorithmType, OutlineParams, RoundingAlgorithmMode, RoundingParams, ShadingMode, PerformanceStats };
 
@@ -47,7 +47,6 @@ export class SceneController {
   private _ground!: AbstractMesh;
   private _gridMesh: LinesMesh | null = null;
   private _cameraTargetNode!: TransformNode;
-  private _glowLayer!: GlowLayer;
   private _isShadowsEnabled: boolean = true;
   private _lastInspectorVisible: boolean = false;
 
@@ -71,19 +70,18 @@ export class SceneController {
     // Initialize Managers
     this.cameraManager = new CameraManager(this.scene, this._canvas, this._cameraTargetNode);
     this.animationManager = new AnimationManager();
-    this.selectionManager = new SelectionManager(this.scene, this.cameraManager.camera, this._canvas);
+    this.selectionManager = new SelectionManager(
+      this.scene,
+      this.cameraManager.camera,
+      this._canvas,
+      () => this.debugManager.activeShadingMode === 'wireframe'
+    );
     this.modelLoader = new ModelLoader(this.scene);
     this.meshRoundingManager = new MeshRoundingManager();
     this.debugManager = new DebugManager(this.scene);
 
     this._setupLights();
     this._setupEnvironment();
-
-    this._glowLayer = new GlowLayer("glow", this.scene, {
-      mainTextureFixedSize: 512,
-      blurKernelSize: 16
-    });
-    this._glowLayer.intensity = 0.8;
 
     // Start render loop and Inspector Lifecycle Guard
     this._registerSceneObservers();
@@ -516,6 +514,8 @@ export class SceneController {
     this.animationManager.clearAnimations();
     this.selectionManager.clearSelection();
     this.selectionManager.restoreAllIsolatedMaterials();
+    this.selectionManager.outlineManager.dispose();
+    this.debugManager.dispose();
     this.modelLoader.clearCurrentModel();
     this.engine.dispose();
   }

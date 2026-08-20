@@ -49,12 +49,12 @@ export class SelectionManager {
     scaling: Vector3;
   }> = new Map();
 
-  constructor(scene: Scene, camera: ArcRotateCamera, canvas: HTMLCanvasElement) {
+  constructor(scene: Scene, camera: ArcRotateCamera, canvas: HTMLCanvasElement, wireframeActiveQuery?: () => boolean) {
     this._scene = scene;
     this._camera = camera;
     this._canvas = canvas;
 
-    this.outlineManager = new OutlineManager(this._scene, this._camera);
+    this.outlineManager = new OutlineManager(this._scene, this._camera, wireframeActiveQuery);
     this._registerRenderObserver();
   }
 
@@ -216,23 +216,27 @@ export class SelectionManager {
   public isTargetVisible(name: string): boolean {
     const node = this._scene.getMeshByName(name) ?? this._scene.getTransformNodeByName(name);
     if (!node) return true;
-    if (!node.isEnabled()) return false;
+    if (!node.isEnabled(true)) return false;
     const meshes = this.getMeshesInTarget(node);
     if (meshes.length > 0) {
       return meshes.some((m) => m.isVisible && m.isEnabled());
     }
-    return node.isEnabled();
+    return node.isEnabled(true);
   }
 
   public setTargetVisible(name: string, visible: boolean): void {
     const node = this._scene.getMeshByName(name) ?? this._scene.getTransformNodeByName(name);
     if (!node) return;
     node.setEnabled(visible);
-    const meshes = this.getMeshesInTarget(node);
-    meshes.forEach((m) => {
-      m.setEnabled(visible);
-      m.isVisible = visible;
-    });
+    // For a single mesh, toggle its own flags; for a group, only toggle the
+    // group node so individually hidden child parts stay hidden when re-shown.
+    if (node instanceof AbstractMesh) {
+      const meshes = this.getMeshesInTarget(node);
+      meshes.forEach((m) => {
+        m.setEnabled(visible);
+        m.isVisible = visible;
+      });
+    }
   }
 
   // ==================== Material Isolation for Opacity ====================
@@ -292,7 +296,7 @@ export class SelectionManager {
         mesh.material = original;
         mesh.visibility = 1.0;
       }
-      if (isolatedMat) {
+      if (isolatedMat && !mesh.isDisposed()) {
         isolatedMat.dispose();
       }
     });

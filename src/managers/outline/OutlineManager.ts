@@ -33,13 +33,13 @@ export class OutlineManager {
     glowIntensity: 1.2
   };
 
-  constructor(scene: Scene, camera: Camera) {
+  constructor(scene: Scene, camera: Camera, wireframeActiveQuery?: () => boolean) {
     this._scene = scene;
     this._camera = camera;
-    this._initRenderers();
+    this._initRenderers(wireframeActiveQuery);
   }
 
-  private _initRenderers(): void {
+  private _initRenderers(wireframeActiveQuery?: () => boolean): void {
     // 官方原生 7 大系统
     const r1 = new NativeOutlineRenderer();
     const r2 = new NativeOverlayRenderer();
@@ -47,7 +47,7 @@ export class OutlineManager {
     const r4 = new NativeBoundingBoxRenderer(this._scene);
     const r5 = new NativeHighlightRenderer(this._scene);
     const r6 = new NativeGlowRenderer(this._scene);
-    const r7 = new NativeWireframeRenderer();
+    const r7 = new NativeWireframeRenderer(wireframeActiveQuery);
 
     // 高阶图形学 4 大系统
     const r8 = new SobelMaskOutline(this._scene, this._camera);

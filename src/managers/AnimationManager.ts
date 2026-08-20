@@ -82,6 +82,10 @@ export class AnimationManager {
   public stepFrame(name: string, deltaFrames: number): void {
     const ag = this._animationGroups.find((g) => g.name === name);
     if (!ag) return;
+    if (!ag.isStarted || !ag.animatables || ag.animatables.length === 0) {
+      ag.start(this._loopMap.get(name) ?? false, 1.0, ag.from, ag.to, false);
+      ag.pause();
+    }
     const current = this.getCurrentFrame(name);
     const target = Math.max(ag.from, Math.min(ag.to, current + deltaFrames));
     ag.goToFrame(target);

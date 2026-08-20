@@ -9,7 +9,7 @@ import { ensureWorldMatrixUpdated } from "./CameraManager";
 
 export interface TreeNode {
   name: string;
-  type: 'transform' | 'mesh';
+  type: 'group' | 'mesh';
   vertices?: number;
   children?: TreeNode[];
   meshName?: string;
@@ -18,8 +18,6 @@ export interface TreeNode {
 export class ModelLoader {
   private _scene: Scene;
   private _currentModelRoot: TransformNode | null = null;
-  private _cachedModelCenterWorld: Vector3 | null = null;
-  private _cachedModelFocusRadius: number | null = null;
 
   constructor(scene: Scene) {
     this._scene = scene;
@@ -34,8 +32,6 @@ export class ModelLoader {
       this._currentModelRoot.dispose(false, true);
       this._currentModelRoot = null;
     }
-    this._cachedModelCenterWorld = null;
-    this._cachedModelFocusRadius = null;
   }
 
   public async loadModelFromFile(
@@ -120,62 +116,63 @@ export class ModelLoader {
 
     return {
       summary,
-      animationGroups: result.animationGroups
+      animationGroups: result.animationGroups || []
     };
   }
 
-  public getModelCenterWorld(fallbackPosition: Vector3): Vector3 {
-    if (this._cachedModelCenterWorld) {
-      return this._cachedModelCenterWorld;
-    }
-    if (!this._currentModelRoot) {
-      return fallbackPosition;
-    }
+  public calculateModelBounds(): { min: Vector3; max: Vector3 } | null {
+    if (!this._currentModelRoot) return null;
+
     let min = new Vector3(Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE);
     let max = new Vector3(-Number.MAX_VALUE, -Number.MAX_VALUE, -Number.MAX_VALUE);
     let hasValidMesh = false;
 
-    this._currentModelRoot.getChildMeshes().forEach((mesh) => {
-      if (mesh.isEnabled() && mesh.getTotalVertices() >= 3) {
-        ensureWorldMatrixUpdated(mesh);
-        const boundingInfo = mesh.getBoundingInfo();
-        min = Vector3.Minimize(min, boundingInfo.boundingBox.minimumWorld);
-        max = Vector3.Maximize(max, boundingInfo.boundingBox.maximumWorld);
+    this._currentModelRoot.getChildMeshes().forEach((m) => {
+      if (m.isEnabled() && m.isVisible && m.getTotalVertices() >= 3) {
+        ensureWorldMatrixUpdated(m);
+        const bb = m.getBoundingInfo().boundingBox;
+        min = Vector3.Minimize(min, bb.minimumWorld);
+        max = Vector3.Maximize(max, bb.maximumWorld);
         hasValidMesh = true;
       }
     });
 
-    if (hasValidMesh) {
-      this._cachedModelCenterWorld = Vector3.Center(min, max);
-      return this._cachedModelCenterWorld;
-    }
-    return this._currentModelRoot.absolutePosition;
+    return hasValidMesh ? { min, max } : null;
   }
 
-  public getModelFocusRadius(computeFitRadiusFn: (center: Vector3, min: Vector3, max: Vector3, margin: number) => number): number {
-    if (this._cachedModelFocusRadius !== null) {
-      return this._cachedModelFocusRadius;
+  public getModelCenterWorld(fallback: Vector3): Vector3 {
+    if (!this._currentModelRoot) return fallback;
+
+    const bounds = this.calculateModelBounds();
+    if (bounds) {
+      return Vector3.Center(bounds.min, bounds.max);
     }
+    return fallback.clone();
+  }
+
+  public getModelFocusRadius(
+    computeFitRadiusCallback?: (center: Vector3, min: Vector3, max: Vector3, margin: number) => number
+  ): number {
     if (!this._currentModelRoot) return 10.0;
 
-    let min = new Vector3(Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE);
-    let max = new Vector3(-Number.MAX_VALUE, -Number.MAX_VALUE, -Number.MAX_VALUE);
-    let hasValidMesh = false;
+    const bounds = this.calculateModelBounds();
+    if (!bounds) return 10.0;
 
-    this._currentModelRoot.getChildMeshes().forEach((mesh) => {
-      if (mesh.isEnabled() && mesh.getTotalVertices() >= 3) {
-        ensureWorldMatrixUpdated(mesh);
-        const boundingInfo = mesh.getBoundingInfo();
-        min = Vector3.Minimize(min, boundingInfo.boundingBox.minimumWorld);
-        max = Vector3.Maximize(max, boundingInfo.boundingBox.maximumWorld);
-        hasValidMesh = true;
-      }
-    });
+    const center = Vector3.Center(bounds.min, bounds.max);
+    if (computeFitRadiusCallback) {
+      return computeFitRadiusCallback(center, bounds.min, bounds.max, 1.35);
+    }
+    const size = bounds.max.subtract(bounds.min);
+    const maxDim = Math.max(size.x, size.y, size.z);
+    return Math.max(maxDim * 2.0, 0.4);
+  }
 
-    if (hasValidMesh) {
-      const center = Vector3.Center(min, max);
-      this._cachedModelFocusRadius = computeFitRadiusFn(center, min, max, 1.25);
-      return this._cachedModelFocusRadius;
+  public getBaseRadius(): number {
+    const bounds = this.calculateModelBounds();
+    if (bounds) {
+      const size = bounds.max.subtract(bounds.min);
+      const maxDim = Math.max(size.x, size.y, size.z);
+      return Math.max(maxDim * 2.0, 0.4);
     }
     return 10.0;
   }
@@ -208,7 +205,7 @@ export class ModelLoader {
       return {
         name: node.name,
         type: "mesh",
-        vertices: node.getTotalVertices(),
+        vertices: node.getTotalVertices ? node.getTotalVertices() : 0,
         meshName: node.name
       };
     }
@@ -218,22 +215,14 @@ export class ModelLoader {
       childNodes.push(this._buildTreeNode(child));
     });
 
-    if (childNodes.length === 0 && isMesh) {
-      return {
-        name: node.name,
-        type: "mesh",
-        vertices: node.getTotalVertices(),
-        meshName: node.name
-      };
-    }
+    const isGroup = childNodes.length > 0;
 
     return {
       name: node.name,
-      type: isMesh ? "mesh" : "transform",
-      vertices: isMesh ? node.getTotalVertices() : undefined,
+      type: isGroup ? "group" : "mesh",
+      vertices: isMesh && node.getTotalVertices ? node.getTotalVertices() : undefined,
       children: childNodes.length > 0 ? childNodes : undefined,
       meshName: isMesh ? node.name : undefined
     };
   }
 }
-

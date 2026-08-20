@@ -1,8 +1,12 @@
 import './style.css';
 import { SceneController } from './scene';
 import type { TreeNode } from './scene';
+import { InspectorI18n } from './utils/InspectorI18n';
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Localize the Babylon Inspector UI once available
+  InspectorI18n.init();
+
   const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement;
   if (!canvas) {
     console.error('Render canvas not found!');
@@ -11,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Initialize 3D Scene Controller
   const sceneController = new SceneController(canvas);
+  (window as any).sceneController = sceneController;
 
   // Top Bar & Dashboard Elements
   const uiDashboard = document.getElementById('uiDashboard') as HTMLElement;
@@ -86,7 +91,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const rowRoundingIter = document.getElementById('rowRoundingIter') as HTMLElement;
   const rngRoundingIter = document.getElementById('rngRoundingIter') as HTMLInputElement;
   const lblRoundingIter = document.getElementById('lblRoundingIter') as HTMLElement;
-  const btnApplyRounding = document.getElementById('btnApplyRounding') as HTMLButtonElement;
   const btnResetRounding = document.getElementById('btnResetRounding') as HTMLButtonElement;
   const lblRoundingStatus = document.getElementById('lblRoundingStatus') as HTMLElement;
 
@@ -193,6 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
       rngSelectedAlpha.value = "1";
       lblSelectedAlpha.textContent = "1.00";
       if (btnRotateSelected) btnRotateSelected.classList.remove('active');
+      updateTreeVisibilityIcons();
       syncTimelineFrameDisplay();
       updatePlayPauseButton(false);
     });
@@ -206,6 +211,7 @@ document.addEventListener('DOMContentLoaded', () => {
       rngSelectedAlpha.value = "1";
       lblSelectedAlpha.textContent = "1.00";
       if (btnRotateSelected) btnRotateSelected.classList.remove('active');
+      updateTreeVisibilityIcons();
       syncZoomUI();
       syncTimelineFrameDisplay();
       updatePlayPauseButton(false);
@@ -320,12 +326,15 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ==================== 3. Model Tree View & Selection ====================
+  const EYE_OPEN_SVG = `<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9Z"/></svg>`;
+  const EYE_CLOSED_SVG = `<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M11.83,9L15,12.16C15,12.11 15,12.05 15,12A3,3 0 0,0 12,9C11.94,9 11.89,9 11.83,9M7.53,9.8L9.08,11.35C9.03,11.56 9,11.77 9,12A3,3 0 0,0 12,15C12.22,15 12.44,14.97 12.65,14.92L14.2,16.47C13.53,16.8 12.79,17 12,17A5,5 0 0,1 7,12C7,11.21 7.2,10.47 7.53,9.8M2,4.27L4.28,6.55L4.73,7C3.08,8.3 1.78,10 1,12C2.73,16.39 7,19.5 12,19.5C13.55,19.5 15.03,19.2 16.38,18.66L16.81,19.08L19.73,22L21,20.73L3.27,3M12,7A5,5 0 0,1 17,12C17,12.64 16.87,13.26 16.64,13.82L19.57,16.75C20.5,15.41 21.21,13.79 21.6,12C19.87,7.61 15.6,4.5 10.6,4.5C9.28,4.5 8.01,4.75 6.83,5.2L8.74,7.11C9.69,6.71 10.8,6.5 12,7Z"/></svg>`;
+
   function populateModelTree() {
     modelTreeContainer.innerHTML = '';
     const tree = sceneController.getModelHierarchy();
     if (!tree || tree.length === 0) {
       modelTreeContainer.innerHTML = '<div class="tree-empty">该模型无有效子部件</div>';
-      selectedNodePanel.style.display = 'none';
+      selectedStickyToolbar.style.display = 'none';
       return;
     }
     renderTree(tree, modelTreeContainer);
@@ -395,12 +404,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Quick Visibility Toggle
       const btnVis = document.createElement('button');
-      btnVis.className = 'tree-action-btn';
+      btnVis.className = 'tree-action-btn tree-vis-btn';
       btnVis.title = '显示/隐藏部件';
       const isVis = sceneController.isTargetVisible(node.name);
-      btnVis.innerHTML = isVis
-        ? `<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9Z"/></svg>`
-        : `<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M11.83,9L15,12.16C15,12.11 15,12.05 15,12A3,3 0 0,0 12,9C11.94,9 11.89,9 11.83,9M7.53,9.8L9.08,11.35C9.03,11.56 9,11.77 9,12A3,3 0 0,0 12,15C12.22,15 12.44,14.97 12.65,14.92L14.2,16.47C13.53,16.8 12.79,17 12,17A5,5 0 0,1 7,12C7,11.21 7.2,10.47 7.53,9.8M2,4.27L4.28,6.55L4.73,7C3.08,8.3 1.78,10 1,12C2.73,16.39 7,19.5 12,19.5C13.55,19.5 15.03,19.2 16.38,18.66L16.81,19.08L19.73,22L21,20.73L3.27,3M12,7A5,5 0 0,1 17,12C17,12.64 16.87,13.26 16.64,13.82L19.57,16.75C20.5,15.41 21.21,13.79 21.6,12C19.87,7.61 15.6,4.5 10.6,4.5C9.28,4.5 8.01,4.75 6.83,5.2L8.74,7.11C9.69,6.71 10.8,6.5 12,7Z"/></svg>`;
+      btnVis.innerHTML = isVis ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
       if (!isVis) row.classList.add('hidden-node');
 
       btnVis.addEventListener('click', (e) => {
@@ -408,9 +415,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const currentlyVis = sceneController.isTargetVisible(node.name);
         sceneController.setTargetVisible(node.name, !currentlyVis);
         row.classList.toggle('hidden-node', currentlyVis);
-        btnVis.innerHTML = !currentlyVis
-          ? `<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9Z"/></svg>`
-          : `<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M11.83,9L15,12.16C15,12.11 15,12.05 15,12A3,3 0 0,0 12,9C11.94,9 11.89,9 11.83,9M7.53,9.8L9.08,11.35C9.03,11.56 9,11.77 9,12A3,3 0 0,0 12,15C12.22,15 12.44,14.97 12.65,14.92L14.2,16.47C13.53,16.8 12.79,17 12,17A5,5 0 0,1 7,12C7,11.21 7.2,10.47 7.53,9.8M2,4.27L4.28,6.55L4.73,7C3.08,8.3 1.78,10 1,12C2.73,16.39 7,19.5 12,19.5C13.55,19.5 15.03,19.2 16.38,18.66L16.81,19.08L19.73,22L21,20.73L3.27,3M12,7A5,5 0 0,1 17,12C17,12.64 16.87,13.26 16.64,13.82L19.57,16.75C20.5,15.41 21.21,13.79 21.6,12C19.87,7.61 15.6,4.5 10.6,4.5C9.28,4.5 8.01,4.75 6.83,5.2L8.74,7.11C9.69,6.71 10.8,6.5 12,7Z"/></svg>`;
+        btnVis.innerHTML = !currentlyVis ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
       });
       actions.appendChild(btnVis);
       row.appendChild(actions);
@@ -457,6 +462,20 @@ document.addEventListener('DOMContentLoaded', () => {
       if (child.children) count += countDescendantMeshes(child);
     });
     return count;
+  }
+
+  /** Refreshes every visibility eye icon in the model tree to match current scene state. */
+  function updateTreeVisibilityIcons() {
+    modelTreeContainer.querySelectorAll<HTMLElement>('.tree-row').forEach((row) => {
+      const name = row.dataset.name;
+      if (!name) return;
+      const isVis = sceneController.isTargetVisible(name);
+      row.classList.toggle('hidden-node', !isVis);
+      const visBtn = row.querySelector('.tree-vis-btn') as HTMLElement | null;
+      if (visBtn) {
+        visBtn.innerHTML = isVis ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
+      }
+    });
   }
 
   function selectTargetByName(targetName: string | null) {
@@ -568,11 +587,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   btnHideSelected.addEventListener('click', () => {
     sceneController.setSelectedVisible(false);
+    updateTreeVisibilityIcons();
   });
 
   btnShowAllMeshes.addEventListener('click', () => {
     treeDropdownGroup?.classList.remove('open');
     sceneController.showAllMeshes();
+    updateTreeVisibilityIcons();
   });
 
   btnDragSelected.addEventListener('click', () => {
@@ -780,33 +801,40 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  let roundingRafId: number | null = null;
   function triggerRealtimeRounding() {
-    const mode = (selRoundingMode ? selRoundingMode.value : 'normals') as any;
-    const angleThreshold = rngRoundingAngle ? parseFloat(rngRoundingAngle.value) : 45;
-    const strength = rngRoundingStrength ? parseFloat(rngRoundingStrength.value) : 0.35;
-    const iterations = rngRoundingIter ? parseInt(rngRoundingIter.value, 10) : 2;
-
-    const count = sceneController.applyRounding(roundingScope, mode, {
-      angleThreshold,
-      strength,
-      iterations
-    });
-
-    if (lblRoundingStatus) {
-      if (count > 0) {
-        lblRoundingStatus.textContent = `实时生效 (${count} 个部件网格): ${
-          mode === 'normals'
-            ? `${angleThreshold}° 倒角`
-            : mode === 'laplacian'
-            ? `${Math.round(strength * 100)}% 强度 (${iterations}次迭代)`
-            : '细分平滑'
-        }`;
-        lblRoundingStatus.style.color = 'var(--accent-cyan)';
-      } else {
-        lblRoundingStatus.textContent = roundingScope === 'selected' ? '请先在视口中左键选中任意部件' : '模型暂无网格';
-        lblRoundingStatus.style.color = '#ff6b81';
-      }
+    if (roundingRafId !== null) {
+      cancelAnimationFrame(roundingRafId);
     }
+    roundingRafId = requestAnimationFrame(() => {
+      roundingRafId = null;
+      const mode = (selRoundingMode ? selRoundingMode.value : 'normals') as any;
+      const angleThreshold = rngRoundingAngle ? parseFloat(rngRoundingAngle.value) : 45;
+      const strength = rngRoundingStrength ? parseFloat(rngRoundingStrength.value) : 0.35;
+      const iterations = rngRoundingIter ? parseInt(rngRoundingIter.value, 10) : 2;
+
+      const count = sceneController.applyRounding(roundingScope, mode, {
+        angleThreshold,
+        strength,
+        iterations
+      });
+
+      if (lblRoundingStatus) {
+        if (count > 0) {
+          lblRoundingStatus.textContent = `实时生效 (${count} 个部件网格): ${
+            mode === 'normals'
+              ? `${angleThreshold}° 倒角`
+              : mode === 'laplacian'
+              ? `${Math.round(strength * 100)}% 强度 (${iterations}次迭代)`
+              : '细分平滑'
+          }`;
+          lblRoundingStatus.style.color = 'var(--accent-cyan)';
+        } else {
+          lblRoundingStatus.textContent = roundingScope === 'selected' ? '请先在视口中左键选中任意部件' : '模型暂无网格';
+          lblRoundingStatus.style.color = '#ff6b81';
+        }
+      }
+    });
   }
 
   if (selRoundingMode) {
@@ -1043,6 +1071,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const range = sceneController.getAnimationRange(activeTrack);
     if (range) {
+      sceneController.goToAnimationFrame(activeTrack, range.from);
       rngTimelineScrubber.min = range.from.toString();
       rngTimelineScrubber.max = range.to.toString();
       rngTimelineScrubber.value = range.from.toString();
@@ -1155,10 +1184,15 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   rngTimelineScrubber.addEventListener('input', () => {
+    const activeTrack = selTimelineTrack.value;
     if (!activeTrack) return;
     const frame = parseFloat(rngTimelineScrubber.value);
     sceneController.goToAnimationFrame(activeTrack, frame);
-    syncTimelineFrameDisplay();
+    const range = sceneController.getAnimationRange(activeTrack);
+    if (range) {
+      lblTimelineFrame.textContent = formatFrameNumber(Math.round(frame), range.to);
+      lblTimelineTime.textContent = formatTimeNumber(Math.max(0, frame - range.from), range.totalFrames);
+    }
   });
 
   const onScrubberRelease = () => {
@@ -1227,6 +1261,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (files && files.length > 0) {
       handleModelFile(files[0]);
     }
+    // Allow re-selecting the same file after a successful load
+    modelFileInput.value = '';
   });
 
   let dragCounter = 0;
@@ -1258,6 +1294,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const onFileDrop = (e: DragEvent) => {
     e.preventDefault();
+    // Stop propagation so the window-level listener below doesn't load the file twice
+    e.stopPropagation();
     dragCounter = 0;
     dropzoneOverlay.classList.remove('active');
 
@@ -1326,6 +1364,17 @@ document.addEventListener('DOMContentLoaded', () => {
         loadingOverlay.classList.remove('active');
       }
     }, 120);
+  }
+
+  // Initialize description labels on startup
+  if (selOutlineAlgorithm && lblOutlineAlgoDesc) {
+    lblOutlineAlgoDesc.textContent = ALGO_DESCS[selOutlineAlgorithm.value] || '';
+  }
+  if (selRoundingMode && lblRoundingDesc) {
+    lblRoundingDesc.textContent = ROUNDING_DESCS[selRoundingMode.value] || '';
+  }
+  if (lblCustomColorHex) {
+    lblCustomColorHex.textContent = (pickerOutlineColor ? pickerOutlineColor.value : '#00f2fe').toUpperCase();
   }
 
   // Initialize Zoom UI on startup

@@ -875,6 +875,25 @@ body.inspector-open .top-bar {
   border-color: rgba(191, 90, 242, 0.35);
 }
 
+.algo-desc {
+  font-size: 0.70rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  padding: 4px 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 2px solid rgba(0, 242, 254, 0.35);
+  border-radius: 0 4px 4px 0;
+  margin-top: 6px;
+}
+
+.color-hex-label {
+  font-size: 0.68rem;
+  font-family: "Consolas", "JetBrains Mono", monospace;
+  color: var(--text-muted);
+  white-space: nowrap;
+  user-select: text;
+}
+
 .select-input.select-block {
   width: 100%;
   padding: 6px 8px;
@@ -1503,14 +1522,13 @@ body.inspector-open .top-bar {
   padding: 36px;
   border-radius: 18px;
   pointer-events: none;
+  border: 2px dashed rgba(0, 242, 254, 0.4);
+  background: rgba(0, 242, 254, 0.03);
+  box-shadow: 0 0 40px rgba(0, 242, 254, 0.08);
 }
 
 .dropzone-content * {
   pointer-events: none;
-}
-  border: 2px dashed rgba(0, 242, 254, 0.4);
-  background: rgba(0, 242, 254, 0.03);
-  box-shadow: 0 0 40px rgba(0, 242, 254, 0.08);
 }
 
 .dropzone-content h2 {

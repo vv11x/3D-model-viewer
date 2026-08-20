@@ -2,7 +2,9 @@ import {
   AbstractMesh,
   Color3,
   Engine,
+  Material,
   Mesh,
+  Observer,
   Scene,
   StandardMaterial
 } from "@babylonjs/core";
@@ -21,12 +23,35 @@ export class StencilOutline implements IOutlineRenderer {
   private _scene: Scene;
   private _activeMeshes: AbstractMesh[] = [];
   private _outlineClones: Mesh[] = [];
+  private _cloneMap: Map<Mesh, Mesh> = new Map();
   private _stencilMaterial: StandardMaterial | null = null;
+  private _syncObserver: Observer<Scene> | null = null;
+  // Tracks material clones created so shared materials are never polluted.
+  private _materialOrigins: Map<AbstractMesh, { original: Material; clone: Material }> = new Map();
+  // Tracks original rendering group ids so they can be restored on clear.
+  private _originalRenderingGroups: Map<AbstractMesh, number> = new Map();
   private _currentParams: OutlineParams = { color: "#00f2fe", width: 0.03 };
+  private _scalingOffset = 1.0;
 
   constructor(scene: Scene) {
     this._scene = scene;
   }
+
+  /** Keeps the stencil shell glued to the original mesh (drag / rotate / animate). */
+  private _syncShells = (): void => {
+    this._cloneMap.forEach((orig, clone) => {
+      if (orig.isDisposed() || clone.isDisposed()) return;
+      if (orig.parent !== clone.parent) clone.parent = orig.parent;
+      clone.position.copyFrom(orig.position);
+      if (orig.rotationQuaternion) {
+        clone.rotationQuaternion = orig.rotationQuaternion.clone();
+      } else {
+        clone.rotation.copyFrom(orig.rotation);
+        clone.rotationQuaternion = null;
+      }
+      clone.scaling.copyFrom(orig.scaling).scaleInPlace(this._scalingOffset);
+    });
+  };
 
   public apply(meshes: AbstractMesh[], params: OutlineParams): void {
     this.clear();
@@ -36,7 +61,7 @@ export class StencilOutline implements IOutlineRenderer {
     if (this._activeMeshes.length === 0) return;
 
     const color = Color3.FromHexString(params.color);
-    const scalingOffset = 1.0 + Math.max(0.015, params.width * 1.2);
+    this._scalingOffset = 1.0 + Math.max(0.015, params.width * 1.2);
 
     // 1. 创建纯色无光照模板材质
     this._stencilMaterial = new StandardMaterial("stencilOutlineMat", this._scene);
@@ -49,17 +74,30 @@ export class StencilOutline implements IOutlineRenderer {
     const engine = this._scene.getEngine();
     engine.setStencilBuffer(true);
 
-    // 3. 原网格写入 Stencil Ref = 1
+    // 3. 原网格写入 Stencil Ref = 1（共享材质时克隆隔离，避免污染同材质其他网格）
     this._activeMeshes.forEach((origMesh) => {
-      origMesh.renderingGroupId = 0;
+      if (origMesh.renderingGroupId !== 0) {
+        this._originalRenderingGroups.set(origMesh, origMesh.renderingGroupId);
+        origMesh.renderingGroupId = 0;
+      }
       if (origMesh.material) {
-        origMesh.material.stencil.enabled = true;
-        origMesh.material.stencil.func = Engine.ALWAYS;
-        origMesh.material.stencil.funcRef = 1;
-        origMesh.material.stencil.funcMask = 0xff;
-        origMesh.material.stencil.opStencilFail = Engine.KEEP;
-        origMesh.material.stencil.opDepthFail = Engine.KEEP;
-        origMesh.material.stencil.opStencilDepthPass = Engine.REPLACE;
+        const isShared = this._scene.meshes.some((m) => m !== origMesh && m.material === origMesh.material);
+        if (isShared) {
+          const clone = origMesh.material.clone(`${origMesh.name}_stencil_mat_${origMesh.uniqueId}`);
+          if (clone) {
+            this._materialOrigins.set(origMesh, { original: origMesh.material, clone });
+            origMesh.material = clone;
+          }
+        }
+        if (origMesh.material) {
+          origMesh.material.stencil.enabled = true;
+          origMesh.material.stencil.func = Engine.ALWAYS;
+          origMesh.material.stencil.funcRef = 1;
+          origMesh.material.stencil.funcMask = 0xff;
+          origMesh.material.stencil.opStencilFail = Engine.KEEP;
+          origMesh.material.stencil.opDepthFail = Engine.KEEP;
+          origMesh.material.stencil.opStencilDepthPass = Engine.REPLACE;
+        }
       }
 
       // 4. 创建外扩 Shell，仅当 Stencil != 1 时绘制
@@ -73,7 +111,7 @@ export class StencilOutline implements IOutlineRenderer {
           } else {
             clone.rotation = origMesh.rotation.clone();
           }
-          clone.scaling = origMesh.scaling.scale(scalingOffset);
+          clone.scaling = origMesh.scaling.scale(this._scalingOffset);
           clone.isPickable = false;
           clone.material = this._stencilMaterial;
           clone.renderingGroupId = 1;
@@ -89,40 +127,59 @@ export class StencilOutline implements IOutlineRenderer {
           }
 
           this._outlineClones.push(clone);
+          this._cloneMap.set(clone, origMesh);
         }
       }
     });
+
+    this._syncObserver = this._scene.onBeforeRenderObservable.add(this._syncShells);
   }
 
   public update(params: OutlineParams): void {
     this._currentParams = { ...this._currentParams, ...params };
     const color = Color3.FromHexString(this._currentParams.color);
-    const scalingOffset = 1.0 + Math.max(0.015, this._currentParams.width * 1.2);
+    this._scalingOffset = 1.0 + Math.max(0.015, this._currentParams.width * 1.2);
 
     if (this._stencilMaterial) {
       this._stencilMaterial.diffuseColor = color;
       this._stencilMaterial.emissiveColor = color;
     }
-
-    this._outlineClones.forEach((clone, idx) => {
-      const orig = this._activeMeshes[idx];
-      if (orig) {
-        clone.scaling = orig.scaling.scale(scalingOffset);
-      }
-    });
   }
 
   public clear(): void {
+    if (this._syncObserver) {
+      this._scene.onBeforeRenderObservable.remove(this._syncObserver);
+      this._syncObserver = null;
+    }
+
+    // Restore material clones and disable stencil on any material we touched
     this._activeMeshes.forEach((origMesh) => {
-      if (origMesh.material) {
+      if (origMesh.isDisposed()) return;
+      if (this._originalRenderingGroups.has(origMesh)) {
+        origMesh.renderingGroupId = this._originalRenderingGroups.get(origMesh)!;
+      }
+      if (origMesh.material && origMesh.material.stencil) {
         origMesh.material.stencil.enabled = false;
       }
     });
+    this._originalRenderingGroups.clear();
+    this._materialOrigins.forEach((entry, mesh) => {
+      if (!mesh.isDisposed() && mesh.material === entry.clone) {
+        mesh.material = entry.original;
+      }
+      if (entry.clone) {
+        entry.clone.dispose();
+      }
+    });
+    this._materialOrigins.clear();
 
     this._outlineClones.forEach((clone) => {
-      clone.dispose(false, true);
+      if (!clone.isDisposed()) {
+        clone.dispose(false, false);
+      }
     });
     this._outlineClones = [];
+    this._cloneMap.clear();
 
     if (this._stencilMaterial) {
       this._stencilMaterial.dispose();

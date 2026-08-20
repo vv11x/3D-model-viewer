@@ -5,8 +5,7 @@ import {
   GlowLayer,
   HighlightLayer,
   Mesh,
-  Scene,
-  Vector3
+  Scene
 } from "@babylonjs/core";
 import type { IOutlineRenderer, OutlineAlgorithmType, OutlineParams } from "./IOutlineRenderer";
 
@@ -32,13 +31,7 @@ export class NativeOutlineRenderer implements IOutlineRenderer {
     this._activeMeshes.forEach((mesh) => {
       mesh.renderOutline = true;
       mesh.outlineColor = color;
-
-      // 补偿网格绝对缩放，确保在任意尺寸模型上描边粗细均清晰可见
-      const worldMatrix = mesh.getWorldMatrix();
-      const scaleVector = new Vector3();
-      worldMatrix.decompose(scaleVector);
-      const avgScale = (Math.abs(scaleVector.x) + Math.abs(scaleVector.y) + Math.abs(scaleVector.z)) / 3.0 || 1.0;
-      mesh.outlineWidth = Math.max(0.002, (params.width * 0.4) / avgScale);
+      mesh.outlineWidth = Math.max(0.02, params.width);
     });
   }
 
@@ -196,19 +189,25 @@ export class NativeHighlightRenderer implements IOutlineRenderer {
   public readonly description: string = '【官方原生】特效渲染层双 Pass 分离式高斯模糊扩散，柔和平滑的科幻霓虹外发光光晕。';
 
   private _scene: Scene;
-  private _highlightLayer: HighlightLayer;
+  private _highlightLayer: HighlightLayer | null = null;
   private _activeMeshes: AbstractMesh[] = [];
 
   constructor(scene: Scene) {
     this._scene = scene;
-    this._highlightLayer = new HighlightLayer("nativeHlLayer", this._scene, {
-      isStroke: false,
-      blurHorizontalSize: 1.5,
-      blurVerticalSize: 1.5,
-      mainTextureRatio: 1.0
-    });
-    this._highlightLayer.innerGlow = false;
-    this._highlightLayer.outerGlow = true;
+  }
+
+  private _ensureLayer(): HighlightLayer {
+    if (!this._highlightLayer) {
+      this._highlightLayer = new HighlightLayer("nativeHlLayer", this._scene, {
+        isStroke: false,
+        blurHorizontalSize: 2.5,
+        blurVerticalSize: 2.5,
+        mainTextureRatio: 1.0
+      });
+      this._highlightLayer.innerGlow = true;
+      this._highlightLayer.outerGlow = true;
+    }
+    return this._highlightLayer;
   }
 
   public apply(meshes: AbstractMesh[], params: OutlineParams): void {
@@ -218,28 +217,34 @@ export class NativeHighlightRenderer implements IOutlineRenderer {
   }
 
   public update(params: OutlineParams): void {
+    const layer = this._ensureLayer();
     const color = Color3.FromHexString(params.color);
-    const blurSize = Math.max(0.5, params.width * 40.0);
+    const blurSize = Math.max(1.0, params.width * 60.0);
 
-    this._highlightLayer.blurHorizontalSize = blurSize;
-    this._highlightLayer.blurVerticalSize = blurSize;
+    layer.blurHorizontalSize = blurSize;
+    layer.blurVerticalSize = blurSize;
 
-    this._highlightLayer.removeAllMeshes();
+    layer.removeAllMeshes();
     this._activeMeshes.forEach((mesh) => {
       if (mesh instanceof Mesh) {
-        this._highlightLayer.addMesh(mesh, color);
+        layer.addMesh(mesh, color);
       }
     });
   }
 
   public clear(): void {
-    this._highlightLayer.removeAllMeshes();
+    if (this._highlightLayer) {
+      this._highlightLayer.removeAllMeshes();
+    }
     this._activeMeshes = [];
   }
 
   public dispose(): void {
     this.clear();
-    this._highlightLayer.dispose();
+    if (this._highlightLayer) {
+      this._highlightLayer.dispose();
+      this._highlightLayer = null;
+    }
   }
 }
 
@@ -253,26 +258,32 @@ export class NativeGlowRenderer implements IOutlineRenderer {
   public readonly description: string = '【官方原生】选中部件本体整体向外辐射辉光，犹如通电自发光物体，科技感强烈。';
 
   private _scene: Scene;
-  private _glowLayer: GlowLayer;
+  private _glowLayer: GlowLayer | null = null;
   private _activeMeshes: AbstractMesh[] = [];
   private _currentColor: Color3 = Color3.FromHexString("#00f2fe");
 
   constructor(scene: Scene) {
     this._scene = scene;
-    this._glowLayer = new GlowLayer("nativeGlowLayer", this._scene, {
-      mainTextureFixedSize: 512,
-      blurKernelSize: 32
-    });
-    this._glowLayer.intensity = 1.2;
+  }
 
-    // 解决无自发光材质网格的辉光渲染：自定义 Emissive Selector
-    this._glowLayer.customEmissiveColorSelector = (mesh, _subMesh, _material, result) => {
-      if (this._activeMeshes.includes(mesh)) {
-        result.set(this._currentColor.r, this._currentColor.g, this._currentColor.b, 1.0);
-      } else {
-        result.set(0, 0, 0, 0);
-      }
-    };
+  private _ensureLayer(): GlowLayer {
+    if (!this._glowLayer) {
+      this._glowLayer = new GlowLayer("nativeGlowLayer", this._scene, {
+        mainTextureFixedSize: 512,
+        blurKernelSize: 32
+      });
+      this._glowLayer.intensity = 1.2;
+
+      // 解决无自发光材质网格的辉光渲染：自定义 Emissive Selector
+      this._glowLayer.customEmissiveColorSelector = (mesh, _subMesh, _material, result) => {
+        if (this._activeMeshes.includes(mesh)) {
+          result.set(this._currentColor.r, this._currentColor.g, this._currentColor.b, 1.0);
+        } else {
+          result.set(0, 0, 0, 0);
+        }
+      };
+    }
+    return this._glowLayer;
   }
 
   public apply(meshes: AbstractMesh[], params: OutlineParams): void {
@@ -282,18 +293,19 @@ export class NativeGlowRenderer implements IOutlineRenderer {
   }
 
   public update(params: OutlineParams): void {
+    const layer = this._ensureLayer();
     this._currentColor = Color3.FromHexString(params.color);
-    this._glowLayer.intensity = params.glowIntensity ?? 1.2;
+    layer.intensity = params.glowIntensity ?? 1.2;
     this._activeMeshes.forEach((mesh) => {
       if (mesh instanceof Mesh) {
-        this._glowLayer.addIncludedOnlyMesh(mesh);
+        layer.addIncludedOnlyMesh(mesh);
       }
     });
   }
 
   public clear(): void {
     this._activeMeshes.forEach((mesh) => {
-      if (mesh instanceof Mesh) {
+      if (mesh instanceof Mesh && this._glowLayer) {
         this._glowLayer.removeIncludedOnlyMesh(mesh);
       }
     });
@@ -302,7 +314,10 @@ export class NativeGlowRenderer implements IOutlineRenderer {
 
   public dispose(): void {
     this.clear();
-    this._glowLayer.dispose();
+    if (this._glowLayer) {
+      this._glowLayer.dispose();
+      this._glowLayer = null;
+    }
   }
 }
 
@@ -317,6 +332,11 @@ export class NativeWireframeRenderer implements IOutlineRenderer {
 
   private _activeMeshes: AbstractMesh[] = [];
   private _originalWireframeState: Map<AbstractMesh, boolean> = new Map();
+  private _wireframeActiveQuery?: () => boolean;
+
+  constructor(wireframeActiveQuery?: () => boolean) {
+    this._wireframeActiveQuery = wireframeActiveQuery;
+  }
 
   public apply(meshes: AbstractMesh[], _params: OutlineParams): void {
     this.clear();
@@ -338,9 +358,11 @@ export class NativeWireframeRenderer implements IOutlineRenderer {
   }
 
   public clear(): void {
+    // 全局线框模式 (DebugManager) 激活时保持线框，避免覆盖用户的全局线框状态
+    const globalActive = this._wireframeActiveQuery?.() ?? false;
     this._activeMeshes.forEach((mesh) => {
       if (mesh.material && this._originalWireframeState.has(mesh)) {
-        mesh.material.wireframe = this._originalWireframeState.get(mesh) ?? false;
+        mesh.material.wireframe = globalActive || (this._originalWireframeState.get(mesh) ?? false);
       }
     });
     this._activeMeshes = [];
